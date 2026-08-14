@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230d1117'/%3E%3Cpath d='M2 8h1.5v-3h1.5v6h1.5v-9h1.5v12h1.5v-9h1.5v6h1.5v-3H14' stroke='%234cc2ff' stroke-width='1.2' fill='none'/%3E%3C/svg%3E">
+<title>声纹图 · Voiceprint</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2a3340;
+    --text:#e6edf3; --muted:#8b98a8; --accent:#4cc2ff; --accent2:#ffd166;
+    --good:#3fb950; --bad:#f85149; --warn:#d29922;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif;
+    overscroll-behavior:none;}
+  body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);}
+  #app{max-width:760px;margin:0 auto;}
+  header{position:relative;padding:10px 148px 4px 14px;}
+  header h1{font-size:16px;line-height:22px;margin:0;font-weight:600;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  header .sub{font-size:11px;line-height:15px;color:var(--muted);margin-top:2px;}
+  /* 右上角：手机/电脑 模式（不同电平初始设定） */
+  #cornerToggle{position:absolute;top:12px;right:12px;display:flex;gap:4px;}
+  #cornerToggle .chip{height:22px;padding:0 9px;font-size:11px;border-radius:11px;}
+  #status{font-size:11px;line-height:16px;color:var(--muted);margin:4px 14px 0;min-height:16px;}
+  #status.err{color:var(--bad);}
+  #status.ok{color:var(--good);}
+  #status.rec::before{content:"●";color:var(--bad);margin-right:5px;animation:blink 1.2s infinite;}
+  @keyframes blink{50%{opacity:.15}}
+
+  /* 顶部读数条 */
+  #readout{display:flex;align-items:baseline;justify-content:center;gap:16px;height:30px;
+    margin:4px 10px 0;font-variant-numeric:tabular-nums;font-size:12px;}
+  .rline{display:flex;align-items:baseline;gap:5px;line-height:1.2;white-space:nowrap;}
+  .rlabel{font-size:11px;color:var(--muted);}
+  #timeVal{color:var(--text);min-width:52px;display:inline-block;}
+  #noteVal{color:var(--good);font-size:19px;font-weight:700;min-width:40px;display:inline-block;}
+  #hzVal{color:var(--muted);min-width:58px;display:inline-block;}
+  #lvlVal{color:var(--accent);min-width:52px;display:inline-block;}
+
+  /* 图谱区 */
+  .canvasWrap{position:relative;margin:6px 8px;border-radius:12px;overflow:hidden;
+    background:var(--panel);border:1px solid var(--line);touch-action:none;}
+  .canvasWrap canvas{display:block;width:100%;}
+  #ovl{position:absolute;inset:0;pointer-events:none;}
+  #touchInfo{position:absolute;top:6px;left:8px;font-size:11px;line-height:1.35;
+    font-variant-numeric:tabular-nums;background:rgba(13,17,23,.78);backdrop-filter:blur(3px);
+    color:var(--text);padding:4px 8px;border-radius:7px;border:1px solid var(--line);
+    pointer-events:none;display:none;white-space:nowrap;z-index:5;}
+  #touchInfo b{color:var(--accent2);}
+  #backLive{position:absolute;right:8px;top:6px;z-index:6;height:30px;padding:0 12px;
+    font-size:12px;font-weight:600;border-radius:15px;background:rgba(76,194,255,.92);
+    color:#06121f;border:none;display:none;}
+
+  /* 控件 */
+  .controls{padding:6px 12px calc(18px + env(safe-area-inset-bottom));display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;}
+  .full{grid-column:1 / -1;}
+  label{display:block;font-size:11px;line-height:15px;color:var(--muted);margin-bottom:4px;}
+  .btnRow{display:flex;gap:10px;}
+  .stickyBar{position:sticky;top:env(safe-area-inset-top,0px);z-index:40;background:var(--bg);
+    margin:0;padding:8px 12px;border-bottom:1px solid var(--line);}
+  #safeTop{position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top,0px);
+    background:var(--bg);z-index:39;pointer-events:none;}
+  body.standalone{padding-top:max(env(safe-area-inset-top,0px),54px);}
+  body.standalone .stickyBar{top:max(env(safe-area-inset-top,0px),54px);}
+  body.standalone #safeTop{height:max(env(safe-area-inset-top,0px),54px);}
+  button{border:none;border-radius:11px;height:48px;padding:0 10px;font-size:15px;font-weight:600;
+    line-height:1;color:#06121f;background:var(--accent);transition:filter .1s;}
+  button:active{filter:brightness(.85);}
+  button.sec{background:var(--panel2);color:var(--text);border:1px solid var(--line);}
+  button.rec{background:var(--bad);color:#fff;}
+  button:disabled{opacity:.35;}
+  #recBtn{flex:1.4;}
+  #playBtn,#clearBtn{flex:1;}
+  @keyframes recPulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(76,194,255,0);}
+    50%{box-shadow:0 0 16px 5px rgba(76,194,255,.55);}
+  }
+  #recBtn.idle{animation:recPulse 1.6s ease-in-out infinite;}
+
+  .toggleRow{display:flex;gap:8px;flex-wrap:wrap;}
+  .toggleRow.disabled{opacity:.35;pointer-events:none;}
+  .chip{display:inline-flex;align-items:center;height:30px;box-sizing:border-box;
+    font-size:12px;padding:0 12px;border-radius:20px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--muted);line-height:1;}
+  .chip.active{background:var(--accent);color:#06121f;border-color:var(--accent);}
+  .chip.activeY{background:var(--accent2);color:#06121f;border-color:var(--accent2);}
+
+  .rangeRow{display:flex;align-items:center;gap:8px;}
+  .rangeRow output{font-size:12px;color:var(--text);min-width:52px;text-align:right;
+    font-variant-numeric:tabular-nums;}
+  input[type=range]{width:100%;accent-color:var(--accent);height:28px;}
+
+  .hint{grid-column:1/-1;font-size:11px;color:var(--muted);line-height:1.55;
+    background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:8px 10px;}
+  .hint b{color:var(--text);font-weight:600;}
+  details{grid-column:1/-1;font-size:12px;color:var(--muted);}
+  summary{cursor:pointer;padding:4px 0;line-height:20px;color:var(--accent);}
+  details p{line-height:1.7;margin:6px 0;}
+  details b{color:var(--text);}
+  .legend{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:-1px;margin-right:3px;}
+</style>
+</head>
+<body>
+<div id="safeTop"></div>
+<div id="app">
+<header>
+  <h1>声纹图 · Voiceprint</h1>
+  <div class="sub">实时声谱练习 · 上：音量波形 / 下：频谱声纹</div>
+  <div id="cornerToggle">
+    <span class="chip active" id="devPhone">📱 手机</span>
+    <span class="chip" id="devComputer">💻 电脑</span>
+  </div>
+</header>
+
+<div class="btnRow stickyBar">
+  <button id="recBtn" class="idle">⏺ 录制</button>
+  <button id="playBtn" class="sec" disabled>▶ 回放</button>
+  <button id="clearBtn" class="sec">清屏</button>
+</div>
+
+<div id="status">点击「录制」开始（首次会请求麦克风权限）</div>
+
+<div id="readout">
+  <span class="rline"><span class="rlabel">时间</span><span id="timeVal">0.0 s</span></span>
+  <span class="rline"><span class="rlabel">音高</span><b id="noteVal">—</b><span id="hzVal"></span></span>
+  <span class="rline"><span class="rlabel">强度</span><span id="lvlVal">—</span></span>
+</div>
+
+<div class="canvasWrap" id="wrap">
+  <canvas id="sig"></canvas>
+  <canvas id="spec"></canvas>
+  <canvas id="ovl"></canvas>
+  <div id="touchInfo"></div>
+  <button id="backLive">回到实时 ›</button>
+</div>
+
+<div class="controls">
+  <div>
+    <label>屏幕时长（一屏显示的秒数）</label>
+    <div class="toggleRow" id="durRow">
+      <span class="chip" data-v="6">6s</span>
+      <span class="chip active" data-v="10">10s</span>
+      <span class="chip" data-v="15">15s</span>
+      <span class="chip" data-v="30">30s</span>
+    </div>
+  </div>
+  <div>
+    <label>频率上限（纵轴）</label>
+    <div class="toggleRow" id="fmaxRow">
+      <span class="chip" data-v="2500">2.5k</span>
+      <span class="chip active" data-v="5000">5k</span>
+      <span class="chip" data-v="10000">10k</span>
+    </div>
+  </div>
+  <div class="full">
+    <label>叠加显示</label>
+    <div class="toggleRow">
+      <span class="chip" id="f0Chip">基频线（黄）</span>
+      <span class="chip" id="bandChip">2–4k 亮度带（绿）</span>
+    </div>
+  </div>
+  <div>
+    <label>麦克风增益</label>
+    <div class="rangeRow">
+      <input type="range" id="gainSl" min="1" max="10" step="0.5" value="5">
+      <output id="gainOut">5.0×</output>
+    </div>
+  </div>
+  <div>
+    <label>频谱对比（显示动态范围）</label>
+    <div class="toggleRow" id="rangeRow">
+      <span class="chip" data-v="26">干净 26dB</span>
+      <span class="chip active" data-v="30">标准 30dB</span>
+      <span class="chip" data-v="36">细节 36dB</span>
+    </div>
+  </div>
+
+  <div class="hint">
+    <b>怎么用：</b>按「录制」后对麦克风发声。扫描线推进到屏幕约 3/4 处便停住，此后画面向左滚动，录制不限时长。
+    <b>左右拖动</b>图谱可回看<b>最近 30 秒</b>的声纹（录制中拖动会暂停跟随，点右上「回到实时」继续）。
+    <b>按住不动</b>会出现十字线，可查看该点的时间／频率／音名／强度。
+    「回放」从当前画面左缘的时间开始播放，绿线指示播放位置。
+    亮度会自动跟随你的声音电平（按 Estill 示例录像逐像素标定）：「频谱对比」默认 30dB 接近原版；选 26dB 底噪更黑、线条更干净，36dB 能看到更多气息噪声细节。
+  </div>
+
+  <details>
+    <summary>怎么看这张图（Estill 声纹视觉线索）</summary>
+    <p><b>基频与泛音：</b>最下方、最亮的一条横线是<b>基频</b>（你的音高）；上方一系列等距的平行亮线是<b>泛音</b>。泛音越多、越亮，音色越明亮结实。</p>
+    <p><b>起音（Onset）：</b>硬起音＝波形与声纹左缘垂直齐切；气声起音＝亮线出现前后有雾状散点（气息噪声）；平滑起音＝波形渐大、泛音逐条浮现。</p>
+    <p><b>噪声与干净度：</b>亮线之间的灰雾是<b>线间噪声</b>（气息或挤压）。假声挤压时灰雾增多、线条不齐；后缩（Retract）后灰雾明显减少、线条平滑。甲状软骨前倾（Tilt）同样会让噪声减少、听感更甜。</p>
+    <p><b>声带体态：</b>Slack＝几乎只有竖纹没有横线；Thick＝波形大、泛音深；Thin＝波形小、泛音浅；Stiff＝画面发雾变模糊。</p>
+    <p><b>Twang / Narrow：</b>2–4 kHz 区域能量集中变亮（歌手共振峰），声音更具穿透力。可打开上方「2–4k 亮度带」显示两条绿色参考线（对应官方软件的 Brightness 视图区间）。</p>
+    <p><b>喉位与支撑：</b>喉位升高→整体能量带上移，降低→下移；头颈／躯干支撑（Anchor）→波形变大、所有泛音同时变深。</p>
+    <p><span class="legend" style="background:#ffd166"></span>黄线＝检测到的基频（可在上方开关，录完再开也能补画）。</p>
+  </details>
+
+  <details>
+    <summary>关于麦克风与离线使用</summary>
+    <p>所有声音仅在本机处理，不会上传。iOS Safari 出于安全要求，麦克风只能在 <b>HTTPS 网址</b>下使用；
+    若用「文件」App 直接打开本文件（file://），页面能显示但无法收音。
+    建议把本文件放到任意支持 HTTPS 的网页空间（或局域网 HTTPS 服务器）后，用 Safari 打开并
+    「添加到主屏幕」，即可像 App 一样全屏使用。录制不限时长，图像回看窗口为最近 30 秒；
+    回放使用系统编码（iPhone 上为 AAC/MP4）。</p>
+  </details>
+</div>
+</div>
+
+<script>
+"use strict";
+/* ============ 工具：音名 / 频率 ============ */
+const A4=440, NOTE_NAMES=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const freqToMidiFloat=f=>69+12*Math.log2(f/A4);
+const midiToName=m=>{const r=Math.round(m);return NOTE_NAMES[((r%12)+12)%12]+(Math.floor(r/12)-1);};
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
+const fmtDb=n=>n.toFixed(0).replace("-","−");
+
+/* ============ 状态 ============ */
+/* 设备模式：手机麦克风电平低→高增益；电脑（外置/内置麦）电平高→低增益 */
+const DEVICE_PRESETS={
+  phone:    {gain:5,   pitchGate:0.012},
+  computer: {gain:1.5, pitchGate:0.006}
+};
+let deviceMode=(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+  || (navigator.maxTouchPoints>2&&/Mac/.test(navigator.platform)))?"phone":"computer";
+let dur=10, fMax=5000, gainVal=5, showF0=false, showBand=false;
+/* 显示电平：自动跟随人声峰值（按示例录像逐像素回归标定）
+   白点≈峰值−16dB；范围默认 30dB；伽马 2.0 —— 低电平被强烈压暗，
+   信噪比高：谐波成清晰亮线，底噪近乎全黑（同原版观感）*/
+let dispRange=30;                 // 26/30/36 dB 可选
+let peakHold=-90;                 // 频谱峰值保持（慢衰减）
+let ceilDb=-46, floorDb=-76;      // 每帧由 peakHold 推出
+const CEIL_DROP=16;               // 白点位于峰值下方 16dB（录像回归结果）
+const MIN_CEIL=-46;               // 静音时的最低白点，避免底噪泛白
+const GAMMA=2.0;                  // 录像回归：−60dB 处亮度仅≈8%，对应 γ≈2
+const LIVE_POS=0.75;     // 扫描线停驻位置（屏宽比例）
+const HIST_SECONDS=30;   // 回看窗口：始终保留最近 30 秒（录制不限时长）
+let audioCtx=null, analyser=null, micStream=null, gainNode=null;
+let timeBuf=null, freqBuf=null, pitchBuf=new Float32Array(2048), binHz=0;
+let running=false, startT=0, totalT=0, lastTickMs=0;
+let recorder=null, chunks=[], blobUrl=null, hasTake=false, playing=false;
+const audioEl=new Audio();
+let wakeLock=null;
+let lastF0=-1, f0Hist=[], silentFrames=0, frameNo=0;
+let touchPt=null;            // {x,y} 十字线（CSS 坐标，相对 wrap）
+let statusTimer=null;
+
+/* ============ 历史缓冲（环形：始终保留最近 30 秒）============ */
+let rate=39;                 // 列/秒 = CW/dur
+let ringN=0, head=0;         // head = 累计写入的列数（绝对计数）；存储位置 = col % ringN
+let histInt=null, histF0=null, histFloor=null, histCeil=null;
+let histMin=null, histMax=null;   // 信号条：真实上下包络（Estill 为不对称 min/max 波形）
+let histKey="";
+let viewStart=0;             // 视窗左缘对应的绝对列号
+let followLive=true;         // 录制时是否跟随最新
+let followPlay=true;         // 回放时是否跟随光标
+let dirtyView=true;
+function minView(){ return Math.max(0, head-ringN+4); }   // 可回看的最早列（留几列防边界覆写）
+function colValid(c){ return c>=minView()&&c<head; }
+function colIdx(c){ return c%ringN; }
+
+/* ============ DOM ============ */
+const wrap=$("wrap"), sig=$("sig"), spec=$("spec"), ovl=$("ovl");
+const sigCtx=sig.getContext("2d"), specCtx=spec.getContext("2d"), ovlCtx=ovl.getContext("2d");
+const recBtn=$("recBtn"), playBtn=$("playBtn"), clearBtn=$("clearBtn"), statusEl=$("status");
+const timeVal=$("timeVal"), noteVal=$("noteVal"), hzVal=$("hzVal"), lvlVal=$("lvlVal");
+const touchInfo=$("touchInfo"), backLive=$("backLive");
+
+/* ============ 布局 / 画布 ============ */
+const SIG_H=64, AXIS_W=34, BOT_H=14;   // 左侧频率轴槽 / 底部时间轴槽（坐标不被声纹覆盖）
+let CW=0, SPEC_H=0, PW=0, PH=0, DPR=Math.min(window.devicePixelRatio||1,3);
+let viewImg=null, gridRow=null, gridCanvas=null;
+/* 信号条配色对齐 Estill：浅灰底 + 米黄波形，无中线 */
+const SIG_BG="#8a8e96", SIG_WAVE="#f3edc9", AXIS_BG="#161b22";
+
+/* 颜色查找表：黑 → 深蓝 → 蓝 → 青 → 白（仿 Estill/声谱仪配色） */
+const LUT=new Uint8Array(256*3);
+(function(){
+  /* 紫色系色阶：黑 → 深紫 → 紫 → 亮紫 → 紫红（品红）→ 粉白核心
+     结构与原蓝色阶相同（白点只留给最强核心），仅换色相 */
+  const stops=[[0,0,0,0],[.20,28,10,70],[.45,105,38,205],[.70,196,66,246],[.88,255,105,215],[1,255,240,250]];
+  for(let i=0;i<256;i++){
+    const p=i/255; let k=0;
+    while(k<stops.length-2 && p>stops[k+1][0]) k++;
+    const [p0,r0,g0,b0]=stops[k], [p1,r1,g1,b1]=stops[k+1];
+    const f=(p-p0)/Math.max(p1-p0,1e-6);
+    LUT[i*3]=r0+(r1-r0)*f; LUT[i*3+1]=g0+(g1-g0)*f; LUT[i*3+2]=b0+(b1-b0)*f;
+  }
+})();
+
+function freqToY(f){ return (1-f/fMax)*(PH-1); }
+function yToFreq(y){ return fMax*(1-y/(PH-1)); }
+function freqTicks(){
+  const step = fMax<=3000?500 : fMax<=6000?1000 : 2000;
+  const arr=[]; for(let f=step; f<fMax; f+=step) arr.push(f);
+  return arr;
+}
+function timeTickStep(){ return dur<=6?1 : dur<=10?2 : dur<=15?3 : 5; }
+function viewStartMax(){ return Math.max(0, head-Math.round(PW*LIVE_POS)); }
+
+function resize(){
+  CW=wrap.clientWidth;
+  SPEC_H=Math.round(clamp(window.innerHeight*0.40,230,430));
+  PW=CW-AXIS_W; PH=SPEC_H-BOT_H;
+  rate=PW/dur;
+  sig.width=Math.round(CW*DPR); sig.height=Math.round(SIG_H*DPR);
+  sig.style.height=SIG_H+"px";
+  sigCtx.setTransform(DPR,0,0,DPR,0,0);
+  spec.width=CW; spec.height=SPEC_H;              // 1:1 像素，逐列渲染
+  spec.style.height=SPEC_H+"px";
+  ovl.width=Math.round(CW*DPR); ovl.height=Math.round((SIG_H+SPEC_H)*DPR);
+  ovlCtx.setTransform(DPR,0,0,DPR,0,0);
+  viewImg=specCtx.createImageData(PW,PH);
+  gridRow=new Uint8Array(PH);
+  for(const f of freqTicks()){ const y=Math.round(freqToY(f)); if(y>=0&&y<PH) gridRow[y]=1; }
+  buildGrid();
+  resetHistory();
+}
+
+function allocHistory(){
+  ringN=Math.ceil(HIST_SECONDS*rate)+PW+8;
+  const key=ringN+"x"+PH;
+  if(key!==histKey){
+    histInt=new Uint8Array(ringN*PH);
+    histMin=new Float32Array(ringN);
+    histMax=new Float32Array(ringN);
+    histF0=new Float32Array(ringN);
+    histFloor=new Float32Array(ringN);
+    histCeil=new Float32Array(ringN);
+    histKey=key;
+  }
+}
+
+function resetHistory(){
+  allocHistory();
+  head=0; viewStart=0; followLive=true;
+  touchPt=null; touchInfo.style.display="none";
+  backLive.style.display="none";
+  dirtyView=true;
+  renderView(); drawOverlay();
+}
+
+/* ============ 静态网格层（标签）============ */
+function buildGrid(){
+  gridCanvas=document.createElement("canvas");
+  gridCanvas.width=ovl.width; gridCanvas.height=ovl.height;
+  const g=gridCanvas.getContext("2d");
+  g.setTransform(DPR,0,0,DPR,0,0);
+  g.font="10px -apple-system,sans-serif";
+  const text=(s,x,y,col)=>{ g.strokeStyle="rgba(0,0,0,.75)"; g.lineWidth=2.5; g.lineJoin="round";
+    g.strokeText(s,x,y); g.fillStyle=col; g.fillText(s,x,y); };
+  g.textAlign="right";
+  text("Signal",AXIS_W-4,12,"#9aa5b1");
+  text("kHz",AXIS_W-4,SIG_H+11,"#8b98a8");
+  for(const f of freqTicks()){
+    const y=SIG_H+freqToY(f);
+    const lab=(f/1000)%1===0 ? (f/1000)+"" : (f/1000).toFixed(1);
+    text(lab,AXIS_W-4,y+3.5,"#7f8b9a");
+    g.strokeStyle="#3a4556"; g.lineWidth=1;
+    g.beginPath(); g.moveTo(AXIS_W-2,y+0.5); g.lineTo(AXIS_W,y+0.5); g.stroke();
+  }
+  text("sec",CW-4,SIG_H+PH+11,"#7f8b9a");
+  g.textAlign="left";
+  // 轴槽分隔线
+  g.strokeStyle="#0d1117"; g.lineWidth=2;
+  g.beginPath(); g.moveTo(0,SIG_H); g.lineTo(CW,SIG_H); g.stroke();
+  g.strokeStyle="#3a4556"; g.lineWidth=1;
+  g.beginPath(); g.moveTo(AXIS_W-0.5,0); g.lineTo(AXIS_W-0.5,SIG_H+SPEC_H); g.stroke();
+  g.beginPath(); g.moveTo(AXIS_W,SIG_H+PH+0.5); g.lineTo(CW,SIG_H+PH+0.5); g.stroke();
+}
+
+/* ============ 状态提示 ============ */
+function setStatus(msg,cls){
+  statusEl.textContent=msg; statusEl.className=cls||"";
+  if(statusTimer){ clearTimeout(statusTimer); statusTimer=null; }
+}
+
+/* ============ 音频 ============ */
+function ensureAudio(){
+  if(!audioCtx){
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    audioCtx.addEventListener("statechange",()=>{   // iOS 来电/切换路由后自动唤醒
+      if(running&&audioCtx.state==="suspended") audioCtx.resume().catch(()=>{});
+    });
+  }
+  if(audioCtx.state==="suspended") audioCtx.resume();
+}
+
+async function startTake(){
+  ensureAudio();
+  try{ await audioCtx.resume(); }catch(e){}
+  try{
+    micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}});
+  }catch(err){
+    if(location.protocol==="file:"){
+      setStatus("无法收音：file:// 打开时 iOS 禁用麦克风，请通过 HTTPS 网址打开（见下方说明）","err");
+    }else{
+      setStatus("麦克风开启失败："+err.name+"（请在 设置→Safari→麦克风 允许访问）","err");
+    }
+    return;
+  }
+  micStream.getAudioTracks().forEach(tr=>{
+    tr.onended=()=>{ if(running){ stopTake(); setStatus("麦克风被系统中断（来电／Siri 等），已停止","err"); } };
+  });
+  const src=audioCtx.createMediaStreamSource(micStream);
+  gainNode=audioCtx.createGain(); gainNode.gain.value=gainVal;
+  analyser=audioCtx.createAnalyser();
+  analyser.fftSize=4096;                 // ~85ms 窗（窄带）：谐波显示为细横线，如 Estill 声纹
+  analyser.smoothingTimeConstant=0.55;
+  timeBuf=new Float32Array(analyser.fftSize);
+  freqBuf=new Float32Array(analyser.frequencyBinCount);
+  binHz=audioCtx.sampleRate/analyser.fftSize;
+  src.connect(gainNode); gainNode.connect(analyser);   // 不接 destination，避免回授啸叫
+  try{ await audioCtx.resume(); }catch(e){}
+  setTimeout(()=>{ if(audioCtx&&audioCtx.state!=="running") audioCtx.resume().catch(()=>{}); },300);
+
+  // 录音（原始信号，不经过增益）
+  chunks=[]; recorder=null;
+  if(window.MediaRecorder){
+    const mimes=["audio/mp4","audio/mp4;codecs=mp4a.40.2","audio/webm;codecs=opus","audio/webm"];
+    let mt=mimes.find(m=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(m));
+    try{
+      recorder=mt?new MediaRecorder(micStream,{mimeType:mt}):new MediaRecorder(micStream);
+      recorder.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
+      recorder.onstop=()=>{
+        if(chunks.length){
+          if(blobUrl) URL.revokeObjectURL(blobUrl);
+          const blob=new Blob(chunks,{type:recorder.mimeType||"audio/mp4"});
+          blobUrl=URL.createObjectURL(blob);
+          audioEl.src=blobUrl; hasTake=true; durationFixed=false;
+          playBtn.disabled=false;
+        }
+        releaseMic();
+      };
+      recorder.start(500);
+    }catch(e){ recorder=null; }
+  }
+
+  stopPlayback();
+  resetHistory();
+  startT=audioCtx.currentTime; totalT=0;
+  f0Hist=[]; lastF0=-1; silentFrames=0;
+  running=true;
+  recBtn.textContent="■ 停止"; recBtn.classList.add("rec"); recBtn.classList.remove("idle");
+  playBtn.disabled=true;
+  setToggles(false);
+  setStatus("录制中… 对着麦克风发声","rec");
+  requestWakeLock();
+  loopRAF();
+}
+
+function stopTake(){
+  running=false;
+  recBtn.textContent="⏺ 重新录制"; recBtn.classList.remove("rec");
+  setToggles(true);
+  if(recorder && recorder.state!=="inactive"){
+    try{ recorder.stop(); }catch(e){ releaseMic(); }
+  }else{
+    releaseMic();
+  }
+  playBtn.disabled=!hasTake;
+  backLive.style.display="none";
+  setStatus("已停止 · 左右拖动回看 · 按住不动查看频率 · 回放从画面左缘开始","ok");
+  releaseWakeLock();
+  dirtyView=true; loopRAF();
+}
+
+function releaseMic(){
+  if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
+  analyser=null;
+}
+
+/* ============ 回放（含 webm 无时长修复）============ */
+let durationFixed=false;
+function fixDuration(){        // Chrome 的 MediaRecorder webm 无 duration，需一次 seek 触发
+  return new Promise(res=>{
+    if(durationFixed || (isFinite(audioEl.duration)&&audioEl.duration>0)){ durationFixed=true; res(); return; }
+    const done=()=>{ audioEl.removeEventListener("seeked",done); durationFixed=true; res(); };
+    audioEl.addEventListener("seeked",done);
+    try{ audioEl.currentTime=1e7; }catch(e){ done(); }
+    setTimeout(done,800);
+  });
+}
+function stopPlayback(){
+  if(playing){ audioEl.pause(); }
+  playing=false;
+  playBtn.textContent="▶ 回放";
+  playBtn.disabled=!hasTake||running;
+}
+audioEl.onended=()=>{ stopPlayback(); setToggles(true); setStatus("回放结束","ok"); dirtyView=true; loopRAF(); };
+playBtn.onclick=async()=>{
+  if(playing){ stopPlayback(); setToggles(true); setStatus("已停止回放"); dirtyView=true; loopRAF(); return; }
+  if(!hasTake) return;
+  await fixDuration();
+  const t0=clamp(viewStart/rate,minView()/rate,Math.max(0,totalT-0.05));
+  try{ audioEl.currentTime=t0; }catch(e){}
+  audioEl.play().then(()=>{
+    playing=true; followPlay=true;
+    playBtn.textContent="■ 停止回放";
+    setToggles(false);
+    setStatus("回放中…（绿线为播放位置）","ok");
+    loopRAF();
+  }).catch(e=>setStatus("回放失败："+e.name,"err"));
+};
+
+recBtn.onclick=()=>{ if(running) stopTake(); else startTake(); };
+clearBtn.onclick=()=>{ if(!running){ stopPlayback(); resetHistory(); setStatus("已清屏"); } };
+backLive.addEventListener("pointerdown",e=>e.stopPropagation());
+backLive.onclick=()=>{ followLive=true; backLive.style.display="none"; dirtyView=true; loopRAF(); };
+
+/* ============ 基频检测（自相关 ACF2+，取最近 2048 点）============ */
+function detectPitch(buf,sampleRate){
+  const N=buf.length;
+  let rms=0; for(let i=0;i<N;i++) rms+=buf[i]*buf[i];
+  rms=Math.sqrt(rms/N);
+  if(rms<DEVICE_PRESETS[deviceMode].pitchGate) return -1;
+  let r1=0,r2=N-1;
+  const thres=0.12;
+  for(let i=0;i<N/2;i++){ if(Math.abs(buf[i])<thres){r1=i;break;} }
+  for(let i=1;i<N/2;i++){ if(Math.abs(buf[N-i])<thres){r2=N-i;break;} }
+  const b=buf.slice(r1,r2), M=b.length;
+  if(M<64) return -1;
+  const c=new Float32Array(M);
+  for(let lag=0;lag<M;lag++){ let s=0; for(let i=0;i<M-lag;i++) s+=b[i]*b[i+lag]; c[lag]=s; }
+  let d=0; while(d<M-1&&c[d]>c[d+1]) d++;
+  let maxv=-1,maxp=-1;
+  for(let i=d;i<M;i++){ if(c[i]>maxv){maxv=c[i];maxp=i;} }
+  if(maxp<=0) return -1;
+  let T0=maxp;
+  const x1=c[maxp-1]||0,x2=c[maxp],x3=c[maxp+1]||0;
+  const a=(x1+x3-2*x2)/2, bb=(x3-x1)/2;
+  if(a) T0=maxp-bb/(2*a);
+  const f=sampleRate/T0;
+  if(f<55||f>2500) return -1;
+  return f;
+}
+
+/* ============ 频谱列生成与写入历史 ============ */
+const colArr=[];
+function buildColumn(){
+  const nBins=freqBuf.length;
+  for(let y=0;y<PH;y++){
+    const fc=yToFreq(y);
+    const half=(fMax/(PH-1))/2;
+    let lo=Math.floor((fc-half)/binHz), hi=Math.ceil((fc+half)/binHz);
+    lo=clamp(lo,0,nBins-1); hi=clamp(hi,0,nBins-1);
+    let db=-1000;
+    for(let b=lo;b<=hi;b++){ const v=freqBuf[b]; if(v>db) db=v; }
+    if(db<-500){ colArr[y]=0; continue; }
+    let v=(db-floorDb)/(ceilDb-floorDb);
+    v=clamp(v,0,1);
+    colArr[y]=Math.round(255*Math.pow(v,GAMMA));
+  }
+}
+function appendCol(sMin,sMax,f0){
+  const idx=colIdx(head), base=idx*PH;
+  for(let y=0;y<PH;y++) histInt[base+y]=colArr[y];
+  histMin[idx]=sMin; histMax[idx]=sMax; histF0[idx]=f0;
+  histFloor[idx]=floorDb; histCeil[idx]=ceilDb;
+  head++;
+}
+
+/* ============ 视窗渲染（从历史缓冲绘制可见部分）============ */
+function renderView(){
+  const vs=Math.round(viewStart);
+  const d=viewImg.data;
+  for(let x=0;x<PW;x++){
+    const col=vs+x;
+    const has=colValid(col);
+    const base=has?colIdx(col)*PH:0;
+    for(let y=0;y<PH;y++){
+      let r,g,b;
+      const i=has?histInt[base+y]:0;
+      if(gridRow[y]&&i<30){ r=32;g=22;b=50; }
+      else { r=LUT[i*3]; g=LUT[i*3+1]; b=LUT[i*3+2]; }
+      const o=(y*PW+x)*4;
+      d[o]=r; d[o+1]=g; d[o+2]=b; d[o+3]=255;
+    }
+  }
+  // 轴槽底色（左侧 + 底部），声纹只画在轴槽右侧
+  specCtx.fillStyle=AXIS_BG;
+  specCtx.fillRect(0,0,AXIS_W,SPEC_H);
+  specCtx.fillRect(AXIS_W,PH,PW,BOT_H);
+  specCtx.putImageData(viewImg,AXIS_W,0);
+  // 基频黄线
+  if(showF0){
+    specCtx.fillStyle="#ffd166";
+    for(let x=0;x<PW;x++){
+      const col=vs+x;
+      if(!colValid(col)) continue;
+      const f=histF0[colIdx(col)];
+      if(f>0&&f<=fMax){
+        const y0=Math.round(freqToY(f));
+        specCtx.fillRect(AXIS_W+x,clamp(y0-1,0,PH-3),1,3);
+      }
+    }
+  }
+  // 波形条：真实上下包络，线性映射，超出削顶（对齐 Estill）
+  sigCtx.fillStyle=AXIS_BG; sigCtx.fillRect(0,0,AXIS_W,SIG_H);
+  sigCtx.fillStyle=SIG_BG; sigCtx.fillRect(AXIS_W,0,PW,SIG_H);
+  sigCtx.fillStyle=SIG_WAVE;
+  const mid=SIG_H/2, hs=SIG_H/2-2;
+  for(let x=0;x<PW;x++){
+    const col=vs+x;
+    if(!colValid(col)) continue;
+    const i=colIdx(col);
+    const up=clamp(histMax[i],0,1)*hs, dn=clamp(-histMin[i],0,1)*hs;
+    const y0=mid-Math.max(up,0.5), y1=mid+Math.max(dn,0.5);
+    sigCtx.fillRect(AXIS_W+x,y0,1,Math.max(1,y1-y0));
+  }
+}
+
+/* ============ 叠加层（标签、时间刻度、扫描/回放线、十字线）============ */
+function drawOverlay(){
+  ovlCtx.clearRect(0,0,CW,SIG_H+SPEC_H);
+  if(gridCanvas) ovlCtx.drawImage(gridCanvas,0,0,CW,SIG_H+SPEC_H);
+  const vs=Math.round(viewStart);
+  // 随视窗移动的时间刻度（画在底部轴槽内）
+  const t0=vs/rate, t1=t0+PW/rate;
+  const st=timeTickStep();
+  const yAxis=SIG_H+PH;
+  ovlCtx.font="10px -apple-system,sans-serif";
+  for(let s=Math.ceil(t0/st)*st; s<=t1+1e-6; s+=st){
+    const x=AXIS_W+(s*rate-vs);
+    if(x<AXIS_W||x>CW) continue;
+    ovlCtx.strokeStyle="#5a6b80"; ovlCtx.lineWidth=1;
+    ovlCtx.beginPath(); ovlCtx.moveTo(x+0.5,yAxis); ovlCtx.lineTo(x+0.5,yAxis+4); ovlCtx.stroke();
+    if(x<CW-26) { ovlCtx.fillStyle="#7f8b9a"; ovlCtx.fillText(s+"",x+2,yAxis+11); }
+  }
+  // 扫描线（录制中亮白；停止后淡白，停在最后写入处）
+  if(head>0){
+    const xl=AXIS_W+(head-vs);
+    if(xl>=AXIS_W&&xl<=CW){
+      ovlCtx.strokeStyle=running?"rgba(230,237,243,.85)":"rgba(230,237,243,.45)";
+      ovlCtx.lineWidth=1;
+      ovlCtx.beginPath(); ovlCtx.moveTo(xl+0.5,0); ovlCtx.lineTo(xl+0.5,yAxis); ovlCtx.stroke();
+    }
+  }
+  // 2–4 kHz 亮度带（歌手共振峰区，官方 Brightness 视图的绿线）
+  if(showBand&&fMax>=4000){
+    ovlCtx.strokeStyle="rgba(63,185,80,.75)"; ovlCtx.lineWidth=1;
+    ovlCtx.setLineDash([5,4]);
+    for(const f of [2000,4000]){
+      const y=SIG_H+freqToY(f);
+      ovlCtx.beginPath(); ovlCtx.moveTo(AXIS_W,y+0.5); ovlCtx.lineTo(CW,y+0.5); ovlCtx.stroke();
+    }
+    ovlCtx.setLineDash([]);
+  }
+  // 回放光标
+  if(playing){
+    const px=AXIS_W+(audioEl.currentTime*rate-vs);
+    if(px>=AXIS_W&&px<=CW){
+      ovlCtx.strokeStyle="rgba(63,185,80,.9)"; ovlCtx.lineWidth=1.5;
+      ovlCtx.beginPath(); ovlCtx.moveTo(px,0); ovlCtx.lineTo(px,yAxis); ovlCtx.stroke();
+    }
+  }
+  // 十字线
+  if(touchPt){
+    const x=Math.max(touchPt.x,AXIS_W), y=Math.min(touchPt.y,yAxis-1);
+    ovlCtx.strokeStyle="rgba(255,209,102,.85)"; ovlCtx.lineWidth=1;
+    ovlCtx.beginPath(); ovlCtx.moveTo(x+0.5,0); ovlCtx.lineTo(x+0.5,yAxis); ovlCtx.stroke();
+    ovlCtx.beginPath(); ovlCtx.moveTo(AXIS_W,y+0.5); ovlCtx.lineTo(CW,y+0.5); ovlCtx.stroke();
+  }
+}
+
+/* ============ 触摸：左右拖动回看 / 按住查看 ============ */
+let gesture=null, pressTimer=null;
+function updateTouchInfo(){
+  if(!touchPt){ touchInfo.style.display="none"; return; }
+  const {x,y}=touchPt;
+  const cx=clamp(Math.round(x-AXIS_W),0,PW-1);
+  const col=Math.round(viewStart)+cx;
+  const has=colValid(col);
+  const idx=has?colIdx(col):0;
+  const tStr=has?(col/rate).toFixed(2)+" s":"—";
+  let html;
+  if(y>=SIG_H){
+    const sy=clamp(Math.round(y-SIG_H),0,PH-1);
+    const f=Math.round(yToFreq(sy));
+    const note=f>20?midiToName(freqToMidiFloat(f)):"—";
+    let dbStr="—";
+    if(has){
+      const fl=histFloor[idx], cl=histCeil[idx];
+      const iv=histInt[idx*PH+sy]/255;
+      const db=Math.pow(iv,1/GAMMA)*(cl-fl)+fl;
+      dbStr=(db<=fl+0.5?"≤":"")+fmtDb(db)+" dB";
+    }
+    html=tStr+" · <b>"+f+" Hz</b> "+note+" · "+dbStr;
+  }else{
+    let pk="—";
+    const pAbs=has?Math.max(histMax[idx],-histMin[idx]):0;
+    if(pAbs>0) pk=fmtDb(20*Math.log10(pAbs))+" dB";
+    html=tStr+" · 波形峰值 "+pk;
+  }
+  touchInfo.innerHTML=html;
+  touchInfo.style.display="block";
+  const bw=touchInfo.offsetWidth;
+  touchInfo.style.left=clamp(x-bw/2,4,CW-bw-4)+"px";
+}
+
+wrap.addEventListener("pointerdown",e=>{
+  if(e.target===backLive) return;          // 别抢「回到实时」按钮的点击
+  wrap.setPointerCapture(e.pointerId);
+  const r=wrap.getBoundingClientRect();
+  const x=e.clientX-r.left, y=e.clientY-r.top;
+  gesture={mode:"pending",x0:x,y0:y,lx:x,ly:y,vs0:viewStart};
+  clearTimeout(pressTimer);
+  pressTimer=setTimeout(()=>{        // 长按不动 → 十字线查看
+    if(gesture&&gesture.mode==="pending"){
+      gesture.mode="inspect";
+      touchPt={x:gesture.lx,y:gesture.ly};
+      updateTouchInfo(); dirtyView=true; loopRAF();
+    }
+  },280);
+});
+wrap.addEventListener("pointermove",e=>{
+  if(!gesture) return;
+  if(e.pointerType==="mouse"&&e.buttons===0) return;
+  const r=wrap.getBoundingClientRect();
+  const x=clamp(e.clientX-r.left,0,CW-1), y=clamp(e.clientY-r.top,0,SIG_H+PH-1);
+  gesture.lx=x; gesture.ly=y;
+  if(gesture.mode==="pending"){
+    const dx=x-gesture.x0, dy=y-gesture.y0;
+    if(Math.abs(dx)>10&&Math.abs(dx)>1.3*Math.abs(dy)) gesture.mode="scroll";
+    else if(Math.abs(dy)>10) gesture.mode="inspect";
+    if(gesture.mode!=="pending") clearTimeout(pressTimer);
+  }
+  if(gesture.mode==="scroll"){
+    viewStart=clamp(gesture.vs0-(x-gesture.x0),minView(),viewStartMax());
+    if(running){
+      if(viewStart>=viewStartMax()-2){ followLive=true; backLive.style.display="none"; }
+      else { followLive=false; backLive.style.display="block"; }
+    }
+    if(playing) followPlay=false;
+    touchPt=null; touchInfo.style.display="none";
+    dirtyView=true; loopRAF();
+  }else if(gesture.mode==="inspect"){
+    touchPt={x,y};
+    updateTouchInfo(); dirtyView=true; loopRAF();
+  }
+});
+function endGesture(){ clearTimeout(pressTimer); gesture=null; }
+wrap.addEventListener("pointerup",endGesture);
+wrap.addEventListener("pointercancel",endGesture);
+
+/* ============ 主循环 ============ */
+let rafOn=false;
+function loopRAF(){ if(!rafOn){ rafOn=true; requestAnimationFrame(tick); } }
+function tick(){
+  rafOn=false;
+  frameNo++;
+  if(running&&analyser){
+    const t=audioCtx.currentTime-startT; totalT=t;
+    analyser.getFloatTimeDomainData(timeBuf);
+    let peak=0;
+    for(let i=0;i<timeBuf.length;i++){ const a=Math.abs(timeBuf[i]); if(a>peak) peak=a; }
+    // 信号条包络：取最近一列时长的样本（真实 min/max，不对称）
+    const nCol=Math.min(timeBuf.length,Math.max(256,Math.round(audioCtx.sampleRate/rate)));
+    let sMin=0,sMax=0;
+    for(let i=timeBuf.length-nCol;i<timeBuf.length;i++){
+      const v=timeBuf[i];
+      if(v>sMax) sMax=v; else if(v<sMin) sMin=v;
+    }
+    analyser.getFloatFrequencyData(freqBuf);
+    // 自动电平：峰值保持 + 慢衰减（白点=峰值−16dB，仿示例录像标定）
+    const nb=Math.min(freqBuf.length,Math.ceil(fMax/binHz)+1);
+    let bandMax=-160;
+    for(let b=1;b<nb;b++){ const v=freqBuf[b]; if(v>bandMax) bandMax=v; }
+    const now=performance.now();
+    const dt=lastTickMs?Math.min(0.2,(now-lastTickMs)/1000):0.016;
+    lastTickMs=now;
+    if(bandMax>peakHold) peakHold=bandMax;
+    else peakHold-=2.0*dt;                       // 2 dB/s 衰减
+    ceilDb=Math.max(peakHold-CEIL_DROP,MIN_CEIL);
+    floorDb=ceilDb-dispRange;
+    buildColumn();
+    if(frameNo%2===0){
+      pitchBuf.set(timeBuf.subarray(timeBuf.length-2048));
+      const f=detectPitch(pitchBuf,audioCtx.sampleRate);
+      if(f>0){ f0Hist.push(f); if(f0Hist.length>5)f0Hist.shift(); silentFrames=0; lastF0=median(f0Hist); }
+      else { silentFrames++; if(silentFrames>8){ lastF0=-1; f0Hist=[]; } }
+    }
+    // 按时间推进写入列（同帧多列时复用当前谱；环形覆盖，永不停止）
+    let target=Math.floor(t*rate);
+    if(target-head>ringN){ histInt.fill(0); histMin.fill(0); histMax.fill(0); histF0.fill(0); head=target; } // 长时间挂起后清掉过期内容
+    while(head<target) appendCol(sMin,sMax,lastF0);
+    if(followLive) viewStart=viewStartMax();
+    else viewStart=clamp(viewStart,minView(),viewStartMax());  // 回看中被 30s 窗口边缘推着走
+    dirtyView=true;
+    if(frameNo%8===0){
+      timeVal.textContent=t.toFixed(1)+" s";
+      if(lastF0>0){ noteVal.textContent=midiToName(freqToMidiFloat(lastF0)); hzVal.textContent=Math.round(lastF0)+" Hz"; }
+      else { noteVal.textContent="—"; hzVal.textContent=""; }
+      const pre=peak/Math.max(gainVal,0.01);            // 折算回增益前的真实电平
+      lvlVal.textContent=pre>0.0005?fmtDb(20*Math.log10(pre))+" dB":"—";
+      if(pre>0.98) lvlVal.textContent="⚠ 过载";
+    }
+  }else if(playing){
+    const pc=audioEl.currentTime*rate;
+    if(followPlay){
+      if(pc-viewStart>CW*LIVE_POS) viewStart=clamp(pc-CW*LIVE_POS,minView(),viewStartMax());
+      else if(pc<viewStart) viewStart=clamp(pc-CW*0.1,minView(),viewStartMax());
+    }
+    dirtyView=true;
+    if(frameNo%8===0) timeVal.textContent=audioEl.currentTime.toFixed(1)+" s";
+  }
+  if(dirtyView){ renderView(); drawOverlay(); if(touchPt) updateTouchInfo(); dirtyView=false; }
+  if(running||playing) loopRAF();
+}
+function median(a){ const b=[...a].sort((x,y)=>x-y); return b[Math.floor(b.length/2)]; }
+
+/* ============ 控件 ============ */
+function bindChips(rowId,cb){
+  const row=$(rowId);
+  row.addEventListener("click",e=>{
+    const c=e.target.closest(".chip"); if(!c) return;
+    row.querySelectorAll(".chip").forEach(x=>x.classList.remove("active"));
+    c.classList.add("active");
+    cb(parseFloat(c.dataset.v));
+  });
+}
+bindChips("durRow",v=>{ dur=v; rate=CW/dur; buildGrid(); resetHistory(); });
+bindChips("fmaxRow",v=>{
+  fMax=v;
+  gridRow.fill(0);
+  for(const f of freqTicks()){ const y=Math.round(freqToY(f)); if(y>=0&&y<PH) gridRow[y]=1; }
+  buildGrid(); resetHistory();
+});
+function setToggles(enabled){
+  $("durRow").classList.toggle("disabled",!enabled);
+  $("fmaxRow").classList.toggle("disabled",!enabled);
+}
+$("f0Chip").addEventListener("click",()=>{
+  showF0=!showF0;
+  $("f0Chip").classList.toggle("activeY",showF0);
+  dirtyView=true; loopRAF();
+});
+$("bandChip").addEventListener("click",()=>{
+  showBand=!showBand;
+  $("bandChip").classList.toggle("active",showBand);
+  dirtyView=true; loopRAF();
+});
+bindChips("rangeRow",v=>{ dispRange=v; });
+/* 手机/电脑 模式：套用各自的电平初始设定（增益、基频门限；频谱亮度自动跟随） */
+function applyDeviceMode(mode){
+  deviceMode=mode;
+  const p=DEVICE_PRESETS[mode];
+  gainVal=p.gain;
+  $("gainSl").value=gainVal;  $("gainOut").textContent=gainVal.toFixed(1)+"×";
+  if(gainNode) gainNode.gain.value=gainVal;
+  $("devPhone").classList.toggle("active",mode==="phone");
+  $("devComputer").classList.toggle("active",mode==="computer");
+}
+$("devPhone").addEventListener("click",()=>applyDeviceMode("phone"));
+$("devComputer").addEventListener("click",()=>applyDeviceMode("computer"));
+$("gainSl").addEventListener("input",e=>{
+  gainVal=parseFloat(e.target.value);
+  $("gainOut").textContent=gainVal.toFixed(1)+"×";
+  if(gainNode) gainNode.gain.value=gainVal;
+});
+
+/* ============ 屏幕常亮 / 生命周期 ============ */
+async function requestWakeLock(){
+  try{ if("wakeLock" in navigator) wakeLock=await navigator.wakeLock.request("screen"); }catch(e){}
+}
+function releaseWakeLock(){ try{ if(wakeLock){ wakeLock.release(); wakeLock=null; } }catch(e){} }
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible"){
+    if(audioCtx&&audioCtx.state!=="running") audioCtx.resume().catch(()=>{});
+    if(running) requestWakeLock();
+  }
+});
+
+let resizeTimer=null;
+window.addEventListener("resize",()=>{
+  clearTimeout(resizeTimer);
+  resizeTimer=setTimeout(()=>{
+    if(running) stopTake();
+    stopPlayback();
+    resize();
+  },200);
+});
+
+window.addEventListener("error",e=>{ setStatus("出错："+(e.message||e.type),"err"); });
+
+if(navigator.standalone||(window.matchMedia&&window.matchMedia("(display-mode: standalone)").matches)){
+  document.body.classList.add("standalone");
+}
+
+/* 调试钩子（不影响使用） */
+window.__vp={ get state(){ return {head,viewStart:Math.round(viewStart),minView:minView(),followLive,running,playing,rate:+rate.toFixed(2),totalT:+totalT.toFixed(2),audioT:+audioEl.currentTime.toFixed(2),deviceMode}; },
+  get levels(){ return {peakHold:+peakHold.toFixed(1),ceilDb:+ceilDb.toFixed(1),floorDb:+floorDb.toFixed(1),dispRange}; } };
+
+applyDeviceMode(deviceMode);   // 按设备自动选择初始电平（可手动切换）
+resize();
+</script>
+</body>
+</html>
