@@ -41,11 +41,11 @@
   #hzVal{color:var(--muted);min-width:58px;display:inline-block;}
   #lvlVal{color:var(--accent);min-width:52px;display:inline-block;}
 
-  /* 图谱区 */
-  .canvasWrap{position:relative;margin:6px 8px;border-radius:12px;overflow:hidden;
-    background:var(--panel);border:1px solid var(--line);touch-action:none;}
+  /* 图谱区：响度与频谱为两个相邻的独立格子，中间留小空隙 */
+  .canvasWrap{position:relative;margin:6px 8px;background:transparent;touch-action:none;}
   .canvasWrap canvas{display:block;width:100%;}
-  #ovl{position:absolute;inset:0;pointer-events:none;}
+  #sig,#spec{border-radius:10px;background:var(--panel);}   /* 各自圆角裁切，轮廓线画在网格层 */
+  #ovl{position:absolute;inset:0;pointer-events:none;background:transparent;border-radius:0;}
   #touchInfo{position:absolute;top:6px;left:8px;font-size:11px;line-height:1.35;
     font-variant-numeric:tabular-nums;background:rgba(13,17,23,.78);backdrop-filter:blur(3px);
     color:var(--text);padding:4px 8px;border-radius:7px;border:1px solid var(--line);
@@ -68,13 +68,15 @@
   body.standalone .stickyBar{top:max(env(safe-area-inset-top,0px),54px);}
   body.standalone #safeTop{height:max(env(safe-area-inset-top,0px),54px);}
   button{border:none;border-radius:11px;height:48px;padding:0 10px;font-size:15px;font-weight:600;
-    line-height:1;color:#06121f;background:var(--accent);transition:filter .1s;}
+    line-height:1;color:#06121f;background:var(--accent);transition:filter .1s;
+    display:inline-flex;align-items:center;justify-content:center;gap:7px;}
+  .bico{width:15px;height:15px;flex:0 0 auto;display:block;}   /* 按钮内联 SVG 图标：跨平台稳定显示 */
   button:active{filter:brightness(.85);}
   button.sec{background:var(--panel2);color:var(--text);border:1px solid var(--line);}
   button.rec{background:var(--bad);color:#fff;}
   button:disabled{opacity:.35;}
-  #recBtn{flex:1.4;background:var(--bad);color:#fff;}          /* 录制：红 */
-  #playBtn{flex:1;background:var(--good);color:#06121f;}        /* 回放：绿 */
+  #recBtn{flex:1.4;background:var(--bad);color:#fff;}          /* 录制：红，白字白图标 */
+  #playBtn{flex:1;background:var(--good);color:#fff;}           /* 回放：绿，白字白图标 */
   #clearBtn{flex:1;}
   @keyframes recPulse{
     0%,100%{box-shadow:0 0 0 0 rgba(248,81,73,0);}
@@ -127,9 +129,9 @@
 </header>
 
 <div class="btnRow stickyBar">
-  <button id="recBtn" class="idle">⏺ 录制</button>
-  <button id="playBtn" disabled>▶ 回放</button>
-  <button id="clearBtn" class="sec">清屏</button>
+  <button id="recBtn" class="idle"><svg class="bico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="#fff"/></svg><span>录制</span></button>
+  <button id="playBtn" disabled><svg class="bico" viewBox="0 0 16 16"><path d="M5 3.2v9.6L13 8z" fill="#fff"/></svg><span>回放</span></button>
+  <button id="clearBtn" class="sec"><svg class="bico" viewBox="0 0 24 24"><rect x="10.9" y="1.5" width="2.2" height="8.2" rx="1" fill="#fff"/><rect x="9.6" y="9.2" width="4.8" height="2.4" rx="0.9" fill="#fff"/><path fill="#fff" d="M8 12.4 L16 12.4 L18.8 17.2 L17.2 21.4 L15.4 18 L13.6 21.4 L11.8 18 L10 21.4 L8.2 18 L6.6 21.4 L5.2 17.2 Z"/></svg><span>清屏</span></button>
 </div>
 
 <div id="status">点击「录制」开始（首次会请求麦克风权限）</div>
@@ -230,7 +232,7 @@
     回放使用系统编码（iPhone 上为 AAC/MP4），录音经双声道处理，左右耳同时出声。</p>
   </details>
 
-  <div id="verFoot" class="full">v11 · 2026-08-15<br>上次调整：设置项折叠进「更多设置」（叠加显示／频谱对比／增益／时长与纵轴 分四行）</div>
+  <div id="verFoot" class="full">v13 · 2026-08-15<br>上次调整：清屏图标改为更易识别的扫帚；响度与频谱分为两个带轮廓的独立格子，中间留空隙</div>
 </div>
 </div>
 
@@ -282,6 +284,10 @@ let wakeLock=null;
 let lastF0=-1, f0Hist=[], silentFrames=0, frameNo=0;
 let touchPt=null;
 let statusTimer=null;
+/* 按钮图标（内联 SVG，避免字符在 iOS 被渲染成表情样式） */
+const ICO_REC='<svg class="bico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="#fff"/></svg>';
+const ICO_STOP='<svg class="bico" viewBox="0 0 16 16"><rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1.5" fill="#fff"/></svg>';
+const ICO_PLAY='<svg class="bico" viewBox="0 0 16 16"><path d="M5 3.2v9.6L13 8z" fill="#fff"/></svg>';
 
 /* ============ 历史缓冲（环形，时间基准 BASE_RATE 列/秒）
    存原始量化 dB（0–10kHz 全部 bin），显示时才映射 → 切换时长/频率上限不丢图 ============ */
@@ -430,8 +436,17 @@ function buildGrid(){
   text("sec",CW-4,SPEC_TOP+PH+11,"#7f8b9a");
   g.textAlign="left";
   g.strokeStyle="#3a4556"; g.lineWidth=1;
-  g.beginPath(); g.moveTo(AXIS_W-0.5,0); g.lineTo(AXIS_W-0.5,TOTAL_H); g.stroke();
+  // 轴槽分隔线：只画在各自格子内部，不跨越中间空隙
+  g.beginPath(); g.moveTo(AXIS_W-0.5,1); g.lineTo(AXIS_W-0.5,SIG_H-1); g.stroke();
+  g.beginPath(); g.moveTo(AXIS_W-0.5,SPEC_TOP+1); g.lineTo(AXIS_W-0.5,SPEC_TOP+SPEC_H-1); g.stroke();
   g.beginPath(); g.moveTo(AXIS_W,SPEC_TOP+PH+0.5); g.lineTo(CW,SPEC_TOP+PH+0.5); g.stroke();
+  // 两个格子的外轮廓（圆角描边）
+  g.strokeStyle="#39455a"; g.lineWidth=1;
+  const cell=(x,y,w,h)=>{ g.beginPath();
+    if(g.roundRect) g.roundRect(x,y,w,h,10); else g.rect(x,y,w,h);
+    g.stroke(); };
+  cell(0.5,0.5,CW-1,SIG_H-1);
+  cell(0.5,SPEC_TOP+0.5,CW-1,SPEC_H-1);
 }
 
 /* ============ 状态提示 ============ */
@@ -515,7 +530,7 @@ async function startTake(){
   startT=audioCtx.currentTime; totalT=0; lastTickMs=0;
   f0Hist=[]; lastF0=-1; silentFrames=0; peakHold=-90;
   running=true;
-  recBtn.textContent="■ 停止"; recBtn.classList.add("rec"); recBtn.classList.remove("idle");
+  recBtn.innerHTML=ICO_STOP+"<span>停止</span>"; recBtn.classList.add("rec"); recBtn.classList.remove("idle");
   playBtn.disabled=true;
   setStatus("录制中… 对着麦克风发声","rec");
   requestWakeLock();
@@ -524,7 +539,7 @@ async function startTake(){
 
 function stopTake(){
   running=false;
-  recBtn.textContent="⏺ 重新录制"; recBtn.classList.remove("rec");
+  recBtn.innerHTML=ICO_REC+"<span>重新录制</span>"; recBtn.classList.remove("rec");
   if(recorder && recorder.state!=="inactive"){
     try{ recorder.stop(); }catch(e){ releaseMic(); }
   }else{
@@ -554,10 +569,12 @@ function buildPlayGraph(){
     const s=audioCtx.createMediaElementSource(audioEl);
     const sp=audioCtx.createChannelSplitter(2);
     const mg=audioCtx.createChannelMerger(2);
+    const pg=audioCtx.createGain();
+    pg.gain.value=2.0;    // 回放音量 ×2（+6dB）
     s.connect(sp);
     sp.connect(mg,0,0);   // ch0 → 左
     sp.connect(mg,0,1);   // ch0 → 右
-    mg.connect(audioCtx.destination);
+    mg.connect(pg); pg.connect(audioCtx.destination);
   }catch(e){}              // 失败则回退为元素直接出声
 }
 function fixDuration(){
@@ -572,7 +589,7 @@ function fixDuration(){
 function stopPlayback(){
   if(playing){ audioEl.pause(); }
   playing=false;
-  playBtn.textContent="▶ 回放";
+  playBtn.innerHTML=ICO_PLAY+"<span>回放</span>";
   playBtn.disabled=!hasTake||running;
 }
 audioEl.onended=()=>{ stopPlayback(); setStatus("回放结束","ok"); dirtyView=true; loopRAF(); };
@@ -590,7 +607,7 @@ playBtn.onclick=async()=>{
   try{ audioEl.currentTime=t0; }catch(e){}
   audioEl.play().then(()=>{
     playing=true; followPlay=true;
-    playBtn.textContent="■ 停止回放";
+    playBtn.innerHTML=ICO_STOP+"<span>停止回放</span>";
     setStatus("回放中…（绿线为播放位置）","ok");
     loopRAF();
   }).catch(e=>setStatus("回放失败："+e.name,"err"));
