@@ -208,7 +208,7 @@
     <b>怎么用：</b>按「录制」后对麦克风发声。扫描线推进到屏幕约 3/4 处便停住，此后画面向左滚动，录制不限时长。
     <b>左右拖动</b>图谱可回看<b>最近 60 秒</b>（更早的内容直接到头拉不动；录制中拖动会暂停跟随，点右上「回到实时」继续）。
     <b>按住不动</b>出现十字线，可查看该点的时间／频率／音名／强度。
-    停止后屏幕<b>左 1/4 处</b>有一条<b>播放线</b>：把想听的位置拖到播放线下，按「回放」就从那里开始播；绿色播放光标最多走到画面中央，之后画面自动滚动。
+    停止后屏幕上有一条<b>播放线</b>（初始在左 1/4）：把想听的位置拖到播放线下，按「回放」就从那里开始播；绿色播放光标最多走到画面中央，之后画面自动滚动；停播或播完后，播放线就停在光标所在的位置。
     屏幕时长与频率上限可随时切换，图像和录音都不会丢失。响度条高度可用「响度条增益」调节。所有设置会自动记住，下次打开无需重调。
     频谱已按语音声谱惯例做高频预加重：声音干净时线间为黑，带气息／挤压时 1.5–5kHz 会自然浮现灰雾散点。
   </div>
@@ -234,7 +234,7 @@
     回放使用系统编码（iPhone 上为 AAC/MP4），录音经双声道处理，左右耳同时出声。</p>
   </details>
 
-  <div id="verFoot" class="full">v16 · 2026-08-15<br>上次调整：回放到结尾不再跳动（光标始终钉在中央）；回放音量再提高一倍</div>
+  <div id="verFoot" class="full">v17 · 2026-08-15<br>上次调整：停播/播完后播放线停在光标处，不再跳回左 1/4</div>
 </div>
 </div>
 
@@ -274,8 +274,9 @@ const DEVICE_PRESETS={
 let deviceMode=(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
   || (navigator.maxTouchPoints>2&&/Mac/.test(navigator.platform)))?"phone":"computer";
 let dur=8, fMax=5000, gainVal=5, stripGain=8, showF0=false, showBand=false;
-const PLAY_POS=0.25;      // 播放线位置：屏幕左 1/4
+const PLAY_POS=0.25;      // 播放线初始位置：屏幕左 1/4（新录制时重置）
 const PLAY_PIN=0.5;       // 回放光标最多推进到画面中央，之后画面滚动
+let playLinePos=PLAY_POS; // 播放线当前位置：停播/播完后停在光标所在处，不跳回
 /* 显示电平：自动跟随人声峰值（按 Estill 示例录像逐像素回归标定）
    白点≈峰值−16dB；范围默认 30dB；γ=1.7 压暗低电平 → 底噪近黑、谐波清晰 */
 let dispRange=36;
@@ -325,8 +326,8 @@ const headT=()=>head/BASE_RATE;
 const wStartT=()=>Math.max(0, headT()-HIST_SECONDS);   // 可回看/回放窗口起点（60 秒前=到头）
 /* 视窗上限：录制中扫描线停在 3/4；停止后允许拖到「结束点居中」（与回放结束状态一致，避免跳动）*/
 const viewT0Max=()=>running?Math.max(0, headT()-dur*LIVE_POS):Math.max(0, headT()-dur*PLAY_PIN);
-/* 视窗下限：停止后允许向右多拖 1/4 屏，让「窗口起点」也能对准播放线；窗口之外无画面（到头） */
-const viewT0Min=()=>running?wStartT():(wStartT()-dur*PLAY_POS);
+/* 视窗下限：停止后允许向右多拖，让「窗口起点」也能对准播放线；窗口之外无画面（到头） */
+const viewT0Min=()=>running?wStartT():(wStartT()-dur*playLinePos);
 const minCol=()=>Math.max(0, head-ringN+10);
 const qdb=db=>clamp(Math.round((db+130)*1.7),0,255);   // 量化: -130..+20dB → 0..255
 
@@ -432,7 +433,7 @@ function allocHistory(){
 }
 
 function resetHistory(){
-  head=0; viewT0=0; followLive=true;
+  head=0; viewT0=0; followLive=true; playLinePos=PLAY_POS;
   if(histRaw){ histRaw.fill(0); histMin.fill(0); histMax.fill(0); histF0.fill(0); histClar.fill(0); histBright.fill(0); }
   touchPt=null; touchInfo.style.display="none";
   backLive.style.display="none";
@@ -616,7 +617,12 @@ function fixDuration(){
   });
 }
 function stopPlayback(){
-  if(playing){ audioEl.pause(); }
+  if(playing){
+    // 播放线留在光标当前位置，不跳回原处
+    const fr=(Math.min(audioEl.currentTime,headT())-viewT0)/dur;
+    if(fr>0.02&&fr<0.98) playLinePos=fr;
+    audioEl.pause();
+  }
   playing=false;
   playBtn.innerHTML=ICO_PLAY+"<span>回放</span>";
   playBtn.disabled=!hasTake||running;
@@ -629,8 +635,8 @@ playBtn.onclick=async()=>{
   try{ await audioCtx.resume(); }catch(e){}
   buildPlayGraph();
   await fixDuration();
-  // 起点 = 播放线（屏幕左 1/4）对应的时间；若在录音末尾之后 → 从窗口起点
-  let t0=viewT0+dur*PLAY_POS;
+  // 起点 = 播放线当前位置对应的时间；若在录音末尾之后 → 从窗口起点
+  let t0=viewT0+dur*playLinePos;
   if(t0>headT()-0.25) t0=wStartT();
   t0=clamp(t0,wStartT(),Math.max(0,totalT-0.05));
   try{ audioEl.currentTime=t0; }catch(e){}
@@ -793,10 +799,10 @@ function drawOverlay(){
       ovlCtx.beginPath(); ovlCtx.moveTo(xl,0); ovlCtx.lineTo(xl,yAxis); ovlCtx.stroke();
     }
   }
-  // 停止后：唯一的播放线（实线+顶部小三角，屏幕左 1/4，回放从这里开始）
+  // 停止后：唯一的播放线（实线+顶部小三角，回放从这里开始；停播后停在光标处）
   // 回放进行中隐藏，只留绿色播放光标
   if(!running&&!playing&&hasTake&&head>0){
-    const px=AXIS_W+PW*PLAY_POS;
+    const px=AXIS_W+PW*playLinePos;
     ovlCtx.strokeStyle="rgba(230,237,243,.65)"; ovlCtx.lineWidth=1;
     ovlCtx.beginPath(); ovlCtx.moveTo(px,0); ovlCtx.lineTo(px,yAxis); ovlCtx.stroke();
     ovlCtx.fillStyle="rgba(230,237,243,.85)";
@@ -1122,7 +1128,7 @@ if(navigator.standalone||(window.matchMedia&&window.matchMedia("(display-mode: s
 
 /* 调试钩子（不影响使用） */
 window.__vp={
-  get state(){ return {head,headT:+headT().toFixed(2),viewT0:+viewT0.toFixed(2),wStart:+wStartT().toFixed(2),followLive,running,playing,dur,fMax,rate:+rate.toFixed(2),totalT:+totalT.toFixed(2),audioT:+audioEl.currentTime.toFixed(2),deviceMode,stripGain,gainVal,dispRange,showF0,showBand}; },
+  get state(){ return {head,headT:+headT().toFixed(2),viewT0:+viewT0.toFixed(2),wStart:+wStartT().toFixed(2),followLive,running,playing,dur,fMax,rate:+rate.toFixed(2),totalT:+totalT.toFixed(2),audioT:+audioEl.currentTime.toFixed(2),deviceMode,stripGain,gainVal,dispRange,showF0,showBand,playLinePos:+playLinePos.toFixed(3)}; },
   get levels(){ return {peakHold:+peakHold.toFixed(1),ceilDb:+ceilDb.toFixed(1),floorDb:+floorDb.toFixed(1),dispRange}; }
 };
 
