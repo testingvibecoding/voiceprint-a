@@ -234,7 +234,7 @@
     回放使用系统编码（iPhone 上为 AAC/MP4），录音经双声道处理，左右耳同时出声。</p>
   </details>
 
-  <div id="verFoot" class="full">v15 · 2026-08-15<br>上次调整：回放音量再提高一倍（附限幅防破音）；「明亮」改为 5 格信号条分级显示</div>
+  <div id="verFoot" class="full">v16 · 2026-08-15<br>上次调整：回放到结尾不再跳动（光标始终钉在中央）；回放音量再提高一倍</div>
 </div>
 </div>
 
@@ -323,7 +323,8 @@ let followLive=true, followPlay=true;
 let dirtyView=true;
 const headT=()=>head/BASE_RATE;
 const wStartT=()=>Math.max(0, headT()-HIST_SECONDS);   // 可回看/回放窗口起点（60 秒前=到头）
-const viewT0Max=()=>Math.max(0, headT()-dur*LIVE_POS);
+/* 视窗上限：录制中扫描线停在 3/4；停止后允许拖到「结束点居中」（与回放结束状态一致，避免跳动）*/
+const viewT0Max=()=>running?Math.max(0, headT()-dur*LIVE_POS):Math.max(0, headT()-dur*PLAY_PIN);
 /* 视窗下限：停止后允许向右多拖 1/4 屏，让「窗口起点」也能对准播放线；窗口之外无画面（到头） */
 const viewT0Min=()=>running?wStartT():(wStartT()-dur*PLAY_POS);
 const minCol=()=>Math.max(0, head-ringN+10);
@@ -595,7 +596,7 @@ function buildPlayGraph(){
     const sp=audioCtx.createChannelSplitter(2);
     const mg=audioCtx.createChannelMerger(2);
     const pg=audioCtx.createGain();
-    pg.gain.value=4.0;    // 回放音量 ×4（+12dB）
+    pg.gain.value=8.0;    // 回放音量 ×8（+18dB，限幅器兜底）
     const lim=audioCtx.createDynamicsCompressor();   // 安全限幅，防大声削顶破音
     lim.threshold.value=-6; lim.knee.value=4; lim.ratio.value=20;
     lim.attack.value=0.002; lim.release.value=0.12;
@@ -801,9 +802,9 @@ function drawOverlay(){
     ovlCtx.fillStyle="rgba(230,237,243,.85)";
     ovlCtx.beginPath(); ovlCtx.moveTo(px-5,0); ovlCtx.lineTo(px+5,0); ovlCtx.lineTo(px,7); ovlCtx.closePath(); ovlCtx.fill();
   }
-  // 回放光标
+  // 回放光标（时间同样对齐到内容末尾，避免尾巴阶段光标右漂）
   if(playing){
-    const px=AXIS_W+(audioEl.currentTime-viewT0)*rate;
+    const px=AXIS_W+(Math.min(audioEl.currentTime,headT())-viewT0)*rate;
     if(px>=AXIS_W&&px<=CW){
       ovlCtx.strokeStyle="rgba(63,185,80,.9)"; ovlCtx.lineWidth=1.5;
       ovlCtx.beginPath(); ovlCtx.moveTo(px,0); ovlCtx.lineTo(px,yAxis); ovlCtx.stroke();
@@ -966,12 +967,11 @@ function tick(){
       brightVal.innerHTML=brightNow>0?brightBars(brightLevel(brightNow)):"—";
     }
   }else if(playing){
-    const pt=audioEl.currentTime;
+    // 光标时间对齐到已绘内容末尾（编码器尾巴不推进画面，线始终钉在中央不跳）
+    const pt=Math.min(audioEl.currentTime,headT());
     if(followPlay){
-      // 回放光标最多推进到画面中央：之后画面滚动、光标钉在中央
-      const ub=Math.max(0, headT()-dur*PLAY_PIN);
-      if((pt-viewT0)*rate>PW*PLAY_PIN) viewT0=clamp(pt-dur*PLAY_PIN,viewT0Min(),ub);
-      else if(pt<viewT0) viewT0=clamp(pt-dur*0.1,viewT0Min(),ub);
+      if((pt-viewT0)*rate>PW*PLAY_PIN) viewT0=Math.max(pt-dur*PLAY_PIN,viewT0Min());
+      else if(pt<viewT0) viewT0=clamp(pt-dur*0.1,viewT0Min(),viewT0Max());
     }
     dirtyView=true;
     if(frameNo%8===0){
