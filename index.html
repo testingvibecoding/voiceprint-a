@@ -73,11 +73,12 @@
   button.sec{background:var(--panel2);color:var(--text);border:1px solid var(--line);}
   button.rec{background:var(--bad);color:#fff;}
   button:disabled{opacity:.35;}
-  #recBtn{flex:1.4;}
-  #playBtn,#clearBtn{flex:1;}
+  #recBtn{flex:1.4;background:var(--bad);color:#fff;}          /* 录制：红 */
+  #playBtn{flex:1;background:var(--good);color:#06121f;}        /* 回放：绿 */
+  #clearBtn{flex:1;}
   @keyframes recPulse{
-    0%,100%{box-shadow:0 0 0 0 rgba(76,194,255,0);}
-    50%{box-shadow:0 0 16px 5px rgba(76,194,255,.55);}
+    0%,100%{box-shadow:0 0 0 0 rgba(248,81,73,0);}
+    50%{box-shadow:0 0 16px 5px rgba(248,81,73,.55);}
   }
   #recBtn.idle{animation:recPulse 1.6s ease-in-out infinite;}
 
@@ -100,7 +101,17 @@
   summary{cursor:pointer;padding:4px 0;line-height:20px;color:var(--accent);}
   details p{line-height:1.7;margin:6px 0;}
   details b{color:var(--text);}
+  /* 「更多设置」折叠面板：醒目按钮样式，展开后需点「折叠」收起 */
+  #moreSettings>summary{display:block;list-style:none;background:var(--panel2);
+    border:1px solid var(--accent);border-radius:11px;padding:12px;
+    font-size:14px;font-weight:600;color:var(--accent);text-align:center;}
+  #moreSettings>summary::-webkit-details-marker{display:none;}
+  #moreSettings[open]>summary{margin-bottom:12px;}
+  .msGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;}
+  .msGrid .full{grid-column:1/-1;}
   .legend{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:-1px;margin-right:3px;}
+  #verFoot{margin-top:14px;padding:10px 0 2px;text-align:center;font-size:10px;line-height:1.6;
+    color:var(--muted);opacity:.65;border-top:1px solid var(--line);}
 </style>
 </head>
 <body>
@@ -117,7 +128,7 @@
 
 <div class="btnRow stickyBar">
   <button id="recBtn" class="idle">⏺ 录制</button>
-  <button id="playBtn" class="sec" disabled>▶ 回放</button>
+  <button id="playBtn" disabled>▶ 回放</button>
   <button id="clearBtn" class="sec">清屏</button>
 </div>
 
@@ -138,51 +149,56 @@
 </div>
 
 <div class="controls">
-  <div>
-    <label>屏幕时长（一屏显示的秒数）</label>
-    <div class="toggleRow" id="durRow">
-      <span class="chip" data-v="6">6s</span>
-      <span class="chip active" data-v="8">8s</span>
-      <span class="chip" data-v="12">12s</span>
+  <details class="full" id="moreSettings">
+    <summary id="msSummary">⚙ 更多设置</summary>
+    <div class="msGrid">
+      <div class="full">
+        <label>叠加显示</label>
+        <div class="toggleRow">
+          <span class="chip" id="f0Chip">基频线（黄）</span>
+          <span class="chip" id="bandChip">2–4k 亮度带（绿）</span>
+        </div>
+      </div>
+      <div class="full">
+        <label>频谱对比（显示动态范围）</label>
+        <div class="toggleRow" id="rangeRow">
+          <span class="chip" data-v="30">干净 30dB</span>
+          <span class="chip active" data-v="36">标准 36dB</span>
+          <span class="chip" data-v="45">灵敏 45dB</span>
+        </div>
+      </div>
+      <div>
+        <label>麦克风增益（频谱/音高）</label>
+        <div class="rangeRow">
+          <input type="range" id="gainSl" min="1" max="10" step="0.5" value="5">
+          <output id="gainOut">5.0×</output>
+        </div>
+      </div>
+      <div>
+        <label>响度条增益（波形高度）</label>
+        <div class="rangeRow">
+          <input type="range" id="stripSl" min="0.5" max="16" step="0.5" value="8">
+          <output id="stripOut">8.0×</output>
+        </div>
+      </div>
+      <div>
+        <label>屏幕时长（一屏秒数）</label>
+        <div class="toggleRow" id="durRow">
+          <span class="chip" data-v="6">6s</span>
+          <span class="chip active" data-v="8">8s</span>
+          <span class="chip" data-v="12">12s</span>
+        </div>
+      </div>
+      <div>
+        <label>频率上限（纵轴）</label>
+        <div class="toggleRow" id="fmaxRow">
+          <span class="chip" data-v="2500">2.5k</span>
+          <span class="chip" data-v="5000">5k</span>
+          <span class="chip" data-v="10000">10k</span>
+        </div>
+      </div>
     </div>
-  </div>
-  <div>
-    <label>频率上限（纵轴）</label>
-    <div class="toggleRow" id="fmaxRow">
-      <span class="chip" data-v="2500">2.5k</span>
-      <span class="chip active" data-v="5000">5k</span>
-      <span class="chip" data-v="10000">10k</span>
-    </div>
-  </div>
-  <div class="full">
-    <label>叠加显示</label>
-    <div class="toggleRow">
-      <span class="chip" id="f0Chip">基频线（黄）</span>
-      <span class="chip" id="bandChip">2–4k 亮度带（绿）</span>
-    </div>
-  </div>
-  <div>
-    <label>麦克风增益（影响频谱/音高检测）</label>
-    <div class="rangeRow">
-      <input type="range" id="gainSl" min="1" max="10" step="0.5" value="5">
-      <output id="gainOut">5.0×</output>
-    </div>
-  </div>
-  <div>
-    <label>响度条增益（上方波形高度）</label>
-    <div class="rangeRow">
-      <input type="range" id="stripSl" min="0.5" max="16" step="0.5" value="8">
-      <output id="stripOut">8.0×</output>
-    </div>
-  </div>
-  <div class="full">
-    <label>频谱对比（显示动态范围）</label>
-    <div class="toggleRow" id="rangeRow">
-      <span class="chip" data-v="26">干净 26dB</span>
-      <span class="chip active" data-v="30">标准 30dB</span>
-      <span class="chip" data-v="36">细节 36dB</span>
-    </div>
-  </div>
+  </details>
 
   <div class="hint">
     <b>怎么用：</b>按「录制」后对麦克风发声。扫描线推进到屏幕约 3/4 处便停住，此后画面向左滚动，录制不限时长。
@@ -213,6 +229,8 @@
     「添加到主屏幕」，即可像 App 一样全屏使用。录制不限时长，回看与回放窗口为最近 60 秒；
     回放使用系统编码（iPhone 上为 AAC/MP4），录音经双声道处理，左右耳同时出声。</p>
   </details>
+
+  <div id="verFoot" class="full">v11 · 2026-08-15<br>上次调整：设置项折叠进「更多设置」（叠加显示／频谱对比／增益／时长与纵轴 分四行）</div>
 </div>
 </div>
 
@@ -238,12 +256,14 @@ const PLAY_POS=0.25;      // 播放线位置：屏幕左 1/4
 const PLAY_PIN=0.5;       // 回放光标最多推进到画面中央，之后画面滚动
 /* 显示电平：自动跟随人声峰值（按 Estill 示例录像逐像素回归标定）
    白点≈峰值−16dB；范围默认 30dB；γ=1.7 压暗低电平 → 底噪近黑、谐波清晰 */
-let dispRange=30;
+let dispRange=36;
 let peakHold=-90;
-let ceilDb=-46, floorDb=-76;
+let ceilDb=-46, floorDb=-82;
 const CEIL_DROP=16, MIN_CEIL=-46;
 const HOLD_DECAY=5;               // 峰值保持衰减 dB/s：厚→虚切换后标尺快速跟下来
-const GAMMA=1.7;
+/* 档位阶梯：范围越大 + 伽马越平 → 弱信号检出率越高 */
+const RANGE_GAMMA={30:1.7,36:1.55,45:1.3};
+let dispGamma=RANGE_GAMMA[dispRange];
 /* 高频预加重：补偿人声频谱每倍频程约-12dB 的自然倾斜（同 Praat 等语音声谱仪惯例）。
    500Hz 以上 +6dB/倍频程，封顶 +15dB —— 气息噪声集中的 1.5–5kHz 区按真实占比显现：
    声音干净时该区仍黑，气声/挤压时灰雾自然浮现 */
@@ -294,7 +314,7 @@ let CW=0, SPEC_H=0, PW=0, PH=0, SPEC_TOP=SIG_H+GAP_H, TOTAL_H=0, rate=40;
 let DPR=Math.min(window.devicePixelRatio||1,3);
 let viewImg=null, gridRow=null, gridCanvas=null, binLo=null, binHi=null;
 const AXIS_BG="#161b22";
-const SIG_WAVE=[192,107,255];        // 响度条信号：紫色（黑底）
+const SIG_WAVE=[80,215,120];         // 响度条信号：绿色（黑底）
 
 /* 紫色系色阶：黑 → 深紫 → 紫 → 亮紫 → 紫红（品红）→ 粉白核心 */
 const LUT=new Uint8Array(256*3);
@@ -308,9 +328,12 @@ const LUT=new Uint8Array(256*3);
     LUT[i*3]=r0+(r1-r0)*f; LUT[i*3+1]=g0+(g1-g0)*f; LUT[i*3+2]=b0+(b1-b0)*f;
   }
 })();
-/* 伽马查表（渲染热路径避免 Math.pow） */
+/* 伽马查表（渲染热路径避免 Math.pow；随档位重建，历史即时重渲染） */
 const GLUT=new Uint8Array(256);
-for(let i=0;i<256;i++) GLUT[i]=Math.round(255*Math.pow(i/255,GAMMA));
+function rebuildGlut(){
+  for(let i=0;i<256;i++) GLUT[i]=Math.round(255*Math.pow(i/255,dispGamma));
+}
+rebuildGlut();
 
 function freqToY(f){ return (1-f/fMax)*(PH-1); }
 function yToFreq(y){ return fMax*(1-y/(PH-1)); }
@@ -394,7 +417,7 @@ function buildGrid(){
   const text=(s,x,y,col)=>{ g.strokeStyle="rgba(0,0,0,.75)"; g.lineWidth=2.5; g.lineJoin="round";
     g.strokeText(s,x,y); g.fillStyle=col; g.fillText(s,x,y); };
   g.textAlign="right";
-  text("响度",AXIS_W-4,12,"#9aa5b1");
+  text("响度",AXIS_W-4,SIG_H/2+3.5,"#9aa5b1");   // 响度区内上下居中
   text("频谱",AXIS_W-4,SPEC_TOP+12,"#9aa5b1");
   text("kHz",AXIS_W-4,SPEC_TOP+25,"#7f8b9a");
   for(const f of freqTicks()){
@@ -521,6 +544,22 @@ function releaseMic(){
 
 /* ============ 回放（含 webm 无时长修复；起点=播放线）============ */
 let durationFixed=false;
+/* 双声道回放通路：把回放的声道 0 明确接到左、右两个输出——
+   无论录音被系统当成单声道还是立体声，耳机两边都同时出声 */
+let playGraphDone=false;
+function buildPlayGraph(){
+  if(playGraphDone||!audioCtx) return;
+  playGraphDone=true;                      // 只尝试一次（MediaElementSource 每元素只能建一次）
+  try{
+    const s=audioCtx.createMediaElementSource(audioEl);
+    const sp=audioCtx.createChannelSplitter(2);
+    const mg=audioCtx.createChannelMerger(2);
+    s.connect(sp);
+    sp.connect(mg,0,0);   // ch0 → 左
+    sp.connect(mg,0,1);   // ch0 → 右
+    mg.connect(audioCtx.destination);
+  }catch(e){}              // 失败则回退为元素直接出声
+}
 function fixDuration(){
   return new Promise(res=>{
     if(durationFixed || (isFinite(audioEl.duration)&&audioEl.duration>0)){ durationFixed=true; res(); return; }
@@ -540,6 +579,9 @@ audioEl.onended=()=>{ stopPlayback(); setStatus("回放结束","ok"); dirtyView=
 playBtn.onclick=async()=>{
   if(playing){ stopPlayback(); setStatus("已停止回放"); dirtyView=true; loopRAF(); return; }
   if(!hasTake) return;
+  ensureAudio();
+  try{ await audioCtx.resume(); }catch(e){}
+  buildPlayGraph();
   await fixDuration();
   // 起点 = 播放线（屏幕左 1/4）对应的时间；若在录音末尾之后 → 从窗口起点
   let t0=viewT0+dur*PLAY_POS;
@@ -869,7 +911,20 @@ function tick(){
       else if(pt<viewT0) viewT0=clamp(pt-dur*0.1,viewT0Min(),ub);
     }
     dirtyView=true;
-    if(frameNo%8===0) timeVal.textContent=pt.toFixed(1)+" s";
+    if(frameNo%8===0){
+      timeVal.textContent=pt.toFixed(1)+" s";
+      // 回放读数：从历史中取当前播放位置的音高与响度（与录制时一致）
+      const col=Math.floor(pt*BASE_RATE);
+      const ok=histRaw&&col>=Math.max(minCol(),Math.ceil(wStartT()*BASE_RATE))&&col<head;
+      if(ok){
+        const i=col%ringN;
+        const f=histF0[i];
+        if(f>0){ noteVal.textContent=midiToName(freqToMidiFloat(f)); hzVal.textContent=Math.round(f)+" Hz"; }
+        else { noteVal.textContent="—"; hzVal.textContent=""; }
+        const pk=Math.max(histMax[i],-histMin[i]);
+        lvlVal.textContent=pk>0.0005?fmtDb(20*Math.log10(pk))+" dB":"—";
+      }else{ noteVal.textContent="—"; hzVal.textContent=""; lvlVal.textContent="—"; }
+    }
   }
   if(dirtyView){ renderView(); drawOverlay(); if(touchPt) updateTouchInfo(); dirtyView=false; }
   if(running||playing) loopRAF();
@@ -898,7 +953,10 @@ bindChips("fmaxRow",v=>{
   rebuildFreqMap(); buildGrid();
   dirtyView=true; loopRAF(); saveSettings();
 });
-bindChips("rangeRow",v=>{ dispRange=v; dirtyView=true; loopRAF(); saveSettings(); });
+bindChips("rangeRow",v=>{
+  dispRange=v; dispGamma=RANGE_GAMMA[v]||1.55; rebuildGlut();
+  dirtyView=true; loopRAF(); saveSettings();
+});
 $("f0Chip").addEventListener("click",()=>{
   showF0=!showF0;
   $("f0Chip").classList.toggle("activeY",showF0);
@@ -908,6 +966,11 @@ $("bandChip").addEventListener("click",()=>{
   showBand=!showBand;
   $("bandChip").classList.toggle("active",showBand);
   dirtyView=true; loopRAF(); saveSettings();
+});
+/* 更多设置：展开后按「折叠」才收起 */
+const msEl=$("moreSettings");
+msEl.addEventListener("toggle",()=>{
+  $("msSummary").textContent=msEl.open?"▲ 折叠设置":"⚙ 更多设置";
 });
 /* 手机/电脑 模式 */
 function applyDeviceMode(mode,keepGain){
@@ -947,7 +1010,8 @@ function loadSettings(){
   if(s.deviceMode==="phone"||s.deviceMode==="computer") deviceMode=s.deviceMode;
   if([6,8,12].indexOf(s.dur)>=0) dur=s.dur;
   if([2500,5000,10000].indexOf(s.fMax)>=0) fMax=s.fMax;
-  if([26,30,36].indexOf(s.dispRange)>=0) dispRange=s.dispRange;
+  if([30,36,45].indexOf(s.dispRange)>=0) dispRange=s.dispRange;
+  dispGamma=RANGE_GAMMA[dispRange]||1.55; rebuildGlut();
   showF0=!!s.showF0; showBand=!!s.showBand;
   if(typeof s.gainVal==="number"&&s.gainVal>=1&&s.gainVal<=10) savedGainOnBoot=s.gainVal;
   if(typeof s.stripGain==="number"&&s.stripGain>=0.5&&s.stripGain<=16) stripGain=s.stripGain;
