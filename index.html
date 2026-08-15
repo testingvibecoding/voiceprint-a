@@ -220,7 +220,7 @@
     <p><b>起音（Onset）：</b>硬起音＝波形与声纹左缘垂直齐切；气声起音＝亮线出现前后有雾状散点（气息噪声）；平滑起音＝波形渐大、泛音逐条浮现。</p>
     <p><b>噪声与干净度：</b>亮线之间的灰雾是<b>线间噪声</b>（气息或挤压）。假声挤压时灰雾增多、线条不齐；后缩（Retract）后灰雾明显减少、线条平滑。甲状软骨前倾（Tilt）同样会让噪声减少、听感更甜。</p>
     <p><b>声带体态：</b>Slack＝几乎只有竖纹没有横线；Thick＝波形大、泛音深；Thin＝波形小、泛音浅；Stiff＝画面发雾变模糊。</p>
-    <p><b>Twang / Narrow：</b>2–4 kHz 区域能量集中变亮（歌手共振峰），声音更具穿透力。可打开上方「2–4k 亮度带」显示两条绿色参考线（对应官方软件的 Brightness 视图区间）。</p>
+    <p><b>Twang / Narrow：</b>2–4 kHz 区域能量集中变亮（歌手共振峰），声音更具穿透力。可打开上方「2–4k 亮度带」显示两条绿色参考线（对应官方软件的 Brightness 视图区间）。顶部「明亮」指标即该频段能量占比的 5 格信号条——低频谐波天然占功率绝对主导，占比数值都很小，故按典型人声区间分档：1 格暗淡、3 格明亮、5 格强穿透（Twang）。</p>
     <p><b>喉位与支撑：</b>喉位升高→整体能量带上移，降低→下移；头颈／躯干支撑（Anchor）→波形变大、所有泛音同时变深。</p>
     <p><span class="legend" style="background:#ffd166"></span>黄线＝检测到的基频（可开关，录完再开也能补画）。</p>
   </details>
@@ -234,7 +234,7 @@
     回放使用系统编码（iPhone 上为 AAC/MP4），录音经双声道处理，左右耳同时出声。</p>
   </details>
 
-  <div id="verFoot" class="full">v14 · 2026-08-15<br>上次调整：读数栏去掉时间、新增「清晰」（谐波比）与「明亮」（2–4kHz 占比）；「停止回放」缩写为「停播」；回放中隐藏播放线只留绿色光标</div>
+  <div id="verFoot" class="full">v15 · 2026-08-15<br>上次调整：回放音量再提高一倍（附限幅防破音）；「明亮」改为 5 格信号条分级显示</div>
 </div>
 </div>
 
@@ -247,7 +247,24 @@ const midiToName=m=>{const r=Math.round(m);return NOTE_NAMES[((r%12)+12)%12]+(Ma
 const $=id=>document.getElementById(id);
 const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
 const fmtDb=n=>n.toFixed(0).replace("-","−");
-const fmtPct=v=>{ const p=v*100; return (p>=9.5?Math.round(p):+p.toFixed(1))+"%"; };
+/* 明亮度分级：2–4kHz 功率占比天然很小（低频谐波占绝对主导），
+   按典型人声区间对数分档，用 5 格信号条显示 */
+const BR_TH=[0.002,0.01,0.03,0.08,0.18];   // ≥0.2% / 1% / 3% / 8% / 18% → 1..5 格
+function brightLevel(v){ let n=0; for(const t of BR_TH){ if(v>=t) n++; } return n; }
+const BB_CACHE={};
+function brightBars(lv){
+  if(BB_CACHE[lv]) return BB_CACHE[lv];
+  let s='<svg width="30" height="15" viewBox="0 0 30 15" style="vertical-align:-2px">';
+  for(let i=0;i<5;i++){
+    const h=5+i*2.4, x=i*6, y=14.5-h;
+    const on=i<lv;
+    s+='<rect x="'+x+'" y="'+y.toFixed(1)+'" width="4.2" height="'+h+'" rx="1" '+
+       (on?'fill="#c06bff"':'fill="none" stroke="#6b5486" stroke-width="1"')+'/>';
+  }
+  s+='</svg>';
+  BB_CACHE[lv]=s;
+  return s;
+}
 
 /* ============ 状态 ============ */
 const DEVICE_PRESETS={
@@ -578,11 +595,14 @@ function buildPlayGraph(){
     const sp=audioCtx.createChannelSplitter(2);
     const mg=audioCtx.createChannelMerger(2);
     const pg=audioCtx.createGain();
-    pg.gain.value=2.0;    // 回放音量 ×2（+6dB）
+    pg.gain.value=4.0;    // 回放音量 ×4（+12dB）
+    const lim=audioCtx.createDynamicsCompressor();   // 安全限幅，防大声削顶破音
+    lim.threshold.value=-6; lim.knee.value=4; lim.ratio.value=20;
+    lim.attack.value=0.002; lim.release.value=0.12;
     s.connect(sp);
     sp.connect(mg,0,0);   // ch0 → 左
     sp.connect(mg,0,1);   // ch0 → 右
-    mg.connect(pg); pg.connect(audioCtx.destination);
+    mg.connect(pg); pg.connect(lim); lim.connect(audioCtx.destination);
   }catch(e){}              // 失败则回退为元素直接出声
 }
 function fixDuration(){
@@ -943,7 +963,7 @@ function tick(){
       lvlVal.textContent=pre>0.0005?fmtDb(20*Math.log10(pre))+" dB":"—";
       if(pre>0.98) lvlVal.textContent="⚠ 过载";
       clarVal.textContent=clarNow>0?Math.round(clarNow*100)+"%":"—";
-      brightVal.textContent=brightNow>0?fmtPct(brightNow):"—";
+      brightVal.innerHTML=brightNow>0?brightBars(brightLevel(brightNow)):"—";
     }
   }else if(playing){
     const pt=audioEl.currentTime;
@@ -966,8 +986,8 @@ function tick(){
         const pk=Math.max(histMax[i],-histMin[i]);
         lvlVal.textContent=pk>0.0005?fmtDb(20*Math.log10(pk))+" dB":"—";
         clarVal.textContent=histClar[i]>0?Math.round(histClar[i]*100)+"%":"—";
-        brightVal.textContent=histBright[i]>0?fmtPct(histBright[i]):"—";
-      }else{ noteVal.textContent="—"; hzVal.textContent=""; lvlVal.textContent="—"; clarVal.textContent="—"; brightVal.textContent="—"; }
+        brightVal.innerHTML=histBright[i]>0?brightBars(brightLevel(histBright[i])):"—";
+      }else{ noteVal.textContent="—"; hzVal.textContent=""; lvlVal.textContent="—"; clarVal.textContent="—"; brightVal.innerHTML="—"; }
     }
   }
   if(dirtyView){ renderView(); drawOverlay(); if(touchPt) updateTouchInfo(); dirtyView=false; }
