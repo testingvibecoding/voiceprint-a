@@ -171,8 +171,8 @@
   <div>
     <label>响度条增益（上方波形高度）</label>
     <div class="rangeRow">
-      <input type="range" id="stripSl" min="0.5" max="8" step="0.5" value="2">
-      <output id="stripOut">2.0×</output>
+      <input type="range" id="stripSl" min="0.5" max="16" step="0.5" value="8">
+      <output id="stripOut">8.0×</output>
     </div>
   </div>
   <div class="full">
@@ -186,10 +186,11 @@
 
   <div class="hint">
     <b>怎么用：</b>按「录制」后对麦克风发声。扫描线推进到屏幕约 3/4 处便停住，此后画面向左滚动，录制不限时长。
-    <b>左右拖动</b>图谱可回看<b>最近 30 秒</b>（录制中拖动会暂停跟随，点右上「回到实时」继续）。
+    <b>左右拖动</b>图谱可回看<b>最近 60 秒</b>（更早的内容直接到头拉不动；录制中拖动会暂停跟随，点右上「回到实时」继续）。
     <b>按住不动</b>出现十字线，可查看该点的时间／频率／音名／强度。
-    停止后屏幕<b>左 1/4 处</b>有一条虚线<b>播放线</b>（录音结束位置为一条淡实线，随画面一起拖动）：把想听的位置拖到播放线下，按「回放」就从那里开始播，绿线指示播放进度。
+    停止后屏幕<b>左 1/4 处</b>有一条<b>播放线</b>：把想听的位置拖到播放线下，按「回放」就从那里开始播；绿色播放光标最多走到画面中央，之后画面自动滚动。
     屏幕时长与频率上限可随时切换，图像和录音都不会丢失。响度条高度可用「响度条增益」调节。所有设置会自动记住，下次打开无需重调。
+    频谱已按语音声谱惯例做高频预加重：声音干净时线间为黑，带气息／挤压时 1.5–5kHz 会自然浮现灰雾散点。
   </div>
 
   <details>
@@ -209,8 +210,8 @@
     <p>所有声音仅在本机处理，不会上传。iOS Safari 出于安全要求，麦克风只能在 <b>HTTPS 网址</b>下使用；
     若用「文件」App 直接打开本文件（file://），页面能显示但无法收音。
     建议把本文件放到任意支持 HTTPS 的网页空间（或局域网 HTTPS 服务器）后，用 Safari 打开并
-    「添加到主屏幕」，即可像 App 一样全屏使用。录制不限时长，图像回看窗口为最近 30 秒；
-    回放使用系统编码（iPhone 上为 AAC/MP4）。</p>
+    「添加到主屏幕」，即可像 App 一样全屏使用。录制不限时长，回看与回放窗口为最近 60 秒；
+    回放使用系统编码（iPhone 上为 AAC/MP4），录音经双声道处理，左右耳同时出声。</p>
   </details>
 </div>
 </div>
@@ -232,17 +233,23 @@ const DEVICE_PRESETS={
 };
 let deviceMode=(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
   || (navigator.maxTouchPoints>2&&/Mac/.test(navigator.platform)))?"phone":"computer";
-let dur=8, fMax=5000, gainVal=5, stripGain=2, showF0=false, showBand=false;
+let dur=8, fMax=5000, gainVal=5, stripGain=8, showF0=false, showBand=false;
 const PLAY_POS=0.25;      // 播放线位置：屏幕左 1/4
+const PLAY_PIN=0.5;       // 回放光标最多推进到画面中央，之后画面滚动
 /* 显示电平：自动跟随人声峰值（按 Estill 示例录像逐像素回归标定）
    白点≈峰值−16dB；范围默认 30dB；γ=1.7 压暗低电平 → 底噪近黑、谐波清晰 */
 let dispRange=30;
 let peakHold=-90;
 let ceilDb=-46, floorDb=-76;
 const CEIL_DROP=16, MIN_CEIL=-46;
+const HOLD_DECAY=5;               // 峰值保持衰减 dB/s：厚→虚切换后标尺快速跟下来
 const GAMMA=1.7;
-const LIVE_POS=0.75;      // 扫描线/播放线位置（屏宽比例）
-const HIST_SECONDS=30;    // 回看窗口：始终保留最近 30 秒（录制不限时长）
+/* 高频预加重：补偿人声频谱每倍频程约-12dB 的自然倾斜（同 Praat 等语音声谱仪惯例）。
+   500Hz 以上 +6dB/倍频程，封顶 +15dB —— 气息噪声集中的 1.5–5kHz 区按真实占比显现：
+   声音干净时该区仍黑，气声/挤压时灰雾自然浮现 */
+const PRE_F0=500, PRE_SLOPE=6, PRE_MAX=15;
+const LIVE_POS=0.75;      // 录制扫描线位置（屏宽比例）
+const HIST_SECONDS=60;    // 回看/回放窗口：最近 60 秒（录制不限时长；更早内容直接到头）
 const BASE_RATE=125;      // 历史存储固定时间基准（列/秒），与屏幕时长解耦 → 切换无缝
 const GAP_H=6;            // 响度条与频谱图之间的缝隙
 
@@ -267,10 +274,10 @@ let viewT0=0;                        // 视窗左缘时间（秒）
 let followLive=true, followPlay=true;
 let dirtyView=true;
 const headT=()=>head/BASE_RATE;
-const minViewT=()=>Math.max(0, headT()-HIST_SECONDS+0.1);
+const wStartT=()=>Math.max(0, headT()-HIST_SECONDS);   // 可回看/回放窗口起点（60 秒前=到头）
 const viewT0Max=()=>Math.max(0, headT()-dur*LIVE_POS);
-/* 视窗下限：停止后允许向右多拖 1/4 屏，让「录音开头」也能对准播放线 */
-const viewT0Min=()=>running?minViewT():(minViewT()-dur*PLAY_POS);
+/* 视窗下限：停止后允许向右多拖 1/4 屏，让「窗口起点」也能对准播放线；窗口之外无画面（到头） */
+const viewT0Min=()=>running?wStartT():(wStartT()-dur*PLAY_POS);
 const minCol=()=>Math.max(0, head-ringN+10);
 const qdb=db=>clamp(Math.round((db+130)*1.7),0,255);   // 量化: -130..+20dB → 0..255
 
@@ -345,8 +352,17 @@ function resize(){
   dirtyView=true; renderView(); drawOverlay();
 }
 
+let preDb=null;   // 每 bin 预加重量（dB）
+function buildPreEmphasis(){
+  preDb=new Float32Array(NB);
+  for(let b=0;b<NB;b++){
+    const f=b*binHz;
+    preDb[b]=f<=PRE_F0?0:Math.min(PRE_MAX,PRE_SLOPE*Math.log2(f/PRE_F0));
+  }
+}
 function allocHistory(){
   NB=Math.min(2049, Math.ceil(10000/binHz)+2);
+  buildPreEmphasis();
   ringN=Math.ceil(HIST_SECONDS*BASE_RATE)+BASE_RATE;
   const key=ringN+"x"+NB;
   if(key!==histKey){
@@ -432,7 +448,7 @@ async function startTake(){
   gainNode=audioCtx.createGain(); gainNode.gain.value=gainVal;
   analyser=audioCtx.createAnalyser();
   analyser.fftSize=4096;                 // ~85ms 窗（窄带）：谐波显示为细横线，如 Estill 声纹
-  analyser.smoothingTimeConstant=0.55;
+  analyser.smoothingTimeConstant=0.45;   // 少量时间平滑：保留气息噪声的散点质感
   timeBuf=new Float32Array(analyser.fftSize);
   freqBuf=new Float32Array(analyser.frequencyBinCount);
   binHz=audioCtx.sampleRate/analyser.fftSize;
@@ -440,13 +456,20 @@ async function startTake(){
   try{ await audioCtx.resume(); }catch(e){}
   setTimeout(()=>{ if(audioCtx&&audioCtx.state!=="running") audioCtx.resume().catch(()=>{}); },300);
 
-  // 录音（原始信号，不经过增益）
+  // 录音（原始信号，不经过增益；经 WebAudio 升为双声道 L=R，回放两边都有声）
   chunks=[]; recorder=null;
+  let recStream=micStream;
+  try{
+    const recDest=audioCtx.createMediaStreamDestination();
+    try{ recDest.channelCount=2; recDest.channelCountMode="explicit"; }catch(e){}
+    src.connect(recDest);
+    recStream=recDest.stream;
+  }catch(e){ recStream=micStream; }
   if(window.MediaRecorder){
     const mimes=["audio/mp4","audio/mp4;codecs=mp4a.40.2","audio/webm;codecs=opus","audio/webm"];
     let mt=mimes.find(m=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(m));
     try{
-      recorder=mt?new MediaRecorder(micStream,{mimeType:mt}):new MediaRecorder(micStream);
+      recorder=mt?new MediaRecorder(recStream,{mimeType:mt}):new MediaRecorder(recStream);
       recorder.ondataavailable=e=>{ if(e.data&&e.data.size) chunks.push(e.data); };
       recorder.onstop=()=>{
         if(chunks.length){
@@ -518,10 +541,10 @@ playBtn.onclick=async()=>{
   if(playing){ stopPlayback(); setStatus("已停止回放"); dirtyView=true; loopRAF(); return; }
   if(!hasTake) return;
   await fixDuration();
-  // 起点 = 播放线（屏幕左 1/4）对应的时间；若在录音末尾之后 → 从可回看开头
+  // 起点 = 播放线（屏幕左 1/4）对应的时间；若在录音末尾之后 → 从窗口起点
   let t0=viewT0+dur*PLAY_POS;
-  if(t0>headT()-0.25) t0=minViewT();
-  t0=clamp(t0,0,Math.max(0,totalT-0.05));
+  if(t0>headT()-0.25) t0=wStartT();
+  t0=clamp(t0,wStartT(),Math.max(0,totalT-0.05));
   try{ audioEl.currentTime=t0; }catch(e){}
   audioEl.play().then(()=>{
     playing=true; followPlay=true;
@@ -568,7 +591,7 @@ let rawCol=new Uint8Array(2049);
 function buildRawCol(){
   for(let b=0;b<NB;b++){
     const v=freqBuf[b];
-    rawCol[b]=(v>-500&&v<500)?qdb(v):0;
+    rawCol[b]=(v>-500&&v<500)?qdb(v+preDb[b]):0;   // 存入即含预加重
   }
 }
 function appendCol(sMin,sMax,f0){
@@ -584,7 +607,7 @@ function appendCol(sMin,sMax,f0){
 /* ============ 视窗渲染（时间→环形列，显示映射在渲染时完成）============ */
 function renderView(){
   const d=viewImg.data;
-  const mc=minCol();
+  const mc=Math.max(minCol(), Math.ceil(wStartT()*BASE_RATE));   // 60 秒窗口之外不显示（到头）
   for(let x=0;x<PW;x++){
     const col=Math.floor((viewT0+x/rate)*BASE_RATE);
     const has=histRaw&&col>=mc&&col<head;
@@ -679,19 +702,12 @@ function drawOverlay(){
       ovlCtx.beginPath(); ovlCtx.moveTo(xl,0); ovlCtx.lineTo(xl,yAxis); ovlCtx.stroke();
     }
   }
-  // 停止后：录音结束线（实线，随内容拖动）+ 左 1/4 播放线（虚线+小三角，回放起点）
+  // 停止后：唯一的播放线（实线+顶部小三角，屏幕左 1/4，回放从这里开始）
   if(!running&&hasTake&&head>0){
-    const xe=AXIS_W+(headT()-viewT0)*rate;
-    if(xe>=AXIS_W&&xe<=CW){
-      ovlCtx.strokeStyle="rgba(230,237,243,.35)"; ovlCtx.lineWidth=1;
-      ovlCtx.beginPath(); ovlCtx.moveTo(xe,0); ovlCtx.lineTo(xe,yAxis); ovlCtx.stroke();
-    }
     const px=AXIS_W+PW*PLAY_POS;
-    ovlCtx.strokeStyle="rgba(230,237,243,.6)"; ovlCtx.lineWidth=1;
-    ovlCtx.setLineDash([4,4]);
+    ovlCtx.strokeStyle="rgba(230,237,243,.65)"; ovlCtx.lineWidth=1;
     ovlCtx.beginPath(); ovlCtx.moveTo(px,0); ovlCtx.lineTo(px,yAxis); ovlCtx.stroke();
-    ovlCtx.setLineDash([]);
-    ovlCtx.fillStyle="rgba(230,237,243,.8)";
+    ovlCtx.fillStyle="rgba(230,237,243,.85)";
     ovlCtx.beginPath(); ovlCtx.moveTo(px-5,0); ovlCtx.lineTo(px+5,0); ovlCtx.lineTo(px,7); ovlCtx.closePath(); ovlCtx.fill();
   }
   // 回放光标
@@ -719,7 +735,7 @@ function updateTouchInfo(){
   const cx=clamp(Math.round(x-AXIS_W),0,PW-1);
   const tau=viewT0+cx/rate;
   const col=Math.floor(tau*BASE_RATE);
-  const has=histRaw&&col>=minCol()&&col<head;
+  const has=histRaw&&col>=Math.max(minCol(),Math.ceil(wStartT()*BASE_RATE))&&col<head;
   const idx=has?col%ringN:0;
   const tStr=has?tau.toFixed(2)+" s":"—";
   let html;
@@ -731,7 +747,8 @@ function updateTouchInfo(){
     if(has){
       let qm=0; const base=idx*NB;
       for(let b=binLo[sy];b<=binHi[sy];b++){ const q=histRaw[base+b]; if(q>qm) qm=q; }
-      const db=qm/1.7-130;
+      const pre=f<=PRE_F0?0:Math.min(PRE_MAX,PRE_SLOPE*Math.log2(f/PRE_F0));
+      const db=qm/1.7-130-pre;               // 读数扣除预加重，显示真实电平
       dbStr=(qm===0?"≤":"")+fmtDb(db)+" dB";
     }
     html=tStr+" · <b>"+f+" Hz</b> "+note+" · "+dbStr;
@@ -814,12 +831,12 @@ function tick(){
     // 自动电平：峰值保持 + 慢衰减（白点=峰值−16dB）
     const nb=Math.min(freqBuf.length,Math.ceil(fMax/binHz)+1);
     let bandMax=-160;
-    for(let b=1;b<nb;b++){ const v=freqBuf[b]; if(v>bandMax) bandMax=v; }
+    for(let b=1;b<nb;b++){ const v=freqBuf[b]+preDb[b]; if(v>bandMax) bandMax=v; }  // 与显示同基准（含预加重）
     const now=performance.now();
     const dt=lastTickMs?Math.min(0.2,(now-lastTickMs)/1000):0.016;
     lastTickMs=now;
     if(bandMax>peakHold) peakHold=bandMax;
-    else peakHold-=2.0*dt;
+    else peakHold-=HOLD_DECAY*dt;
     ceilDb=Math.max(peakHold-CEIL_DROP,MIN_CEIL);
     floorDb=ceilDb-dispRange;
     buildRawCol();
@@ -833,7 +850,7 @@ function tick(){
     if(target-head>ringN){ histRaw.fill(0); histMin.fill(0); histMax.fill(0); histF0.fill(0); head=target; }
     while(head<target) appendCol(sMin,sMax,lastF0);
     if(followLive) viewT0=viewT0Max();
-    else viewT0=clamp(viewT0,minViewT(),viewT0Max());
+    else viewT0=clamp(viewT0,viewT0Min(),viewT0Max());
     dirtyView=true;
     if(frameNo%8===0){
       timeVal.textContent=t.toFixed(1)+" s";
@@ -846,8 +863,10 @@ function tick(){
   }else if(playing){
     const pt=audioEl.currentTime;
     if(followPlay){
-      if((pt-viewT0)*rate>PW*LIVE_POS) viewT0=clamp(pt-dur*LIVE_POS,viewT0Min(),viewT0Max());
-      else if(pt<viewT0) viewT0=clamp(pt-dur*0.1,viewT0Min(),viewT0Max());
+      // 回放光标最多推进到画面中央：之后画面滚动、光标钉在中央
+      const ub=Math.max(0, headT()-dur*PLAY_PIN);
+      if((pt-viewT0)*rate>PW*PLAY_PIN) viewT0=clamp(pt-dur*PLAY_PIN,viewT0Min(),ub);
+      else if(pt<viewT0) viewT0=clamp(pt-dur*0.1,viewT0Min(),ub);
     }
     dirtyView=true;
     if(frameNo%8===0) timeVal.textContent=pt.toFixed(1)+" s";
@@ -879,7 +898,7 @@ bindChips("fmaxRow",v=>{
   rebuildFreqMap(); buildGrid();
   dirtyView=true; loopRAF(); saveSettings();
 });
-bindChips("rangeRow",v=>{ dispRange=v; saveSettings(); });
+bindChips("rangeRow",v=>{ dispRange=v; dirtyView=true; loopRAF(); saveSettings(); });
 $("f0Chip").addEventListener("click",()=>{
   showF0=!showF0;
   $("f0Chip").classList.toggle("activeY",showF0);
@@ -914,7 +933,7 @@ $("stripSl").addEventListener("input",e=>{
 });
 
 /* ============ 设置记忆（本机存储，下次打开自动恢复）============ */
-const SKEY="voiceprint_prefs_v1";
+const SKEY="voiceprint_prefs_v2";
 let savedGainOnBoot=null;
 function saveSettings(){
   try{
@@ -931,7 +950,7 @@ function loadSettings(){
   if([26,30,36].indexOf(s.dispRange)>=0) dispRange=s.dispRange;
   showF0=!!s.showF0; showBand=!!s.showBand;
   if(typeof s.gainVal==="number"&&s.gainVal>=1&&s.gainVal<=10) savedGainOnBoot=s.gainVal;
-  if(typeof s.stripGain==="number"&&s.stripGain>=0.5&&s.stripGain<=8) stripGain=s.stripGain;
+  if(typeof s.stripGain==="number"&&s.stripGain>=0.5&&s.stripGain<=16) stripGain=s.stripGain;
 }
 function setChipActive(rowId,val){
   $(rowId).querySelectorAll(".chip").forEach(c=>c.classList.toggle("active",parseFloat(c.dataset.v)===val));
@@ -975,8 +994,24 @@ if(navigator.standalone||(window.matchMedia&&window.matchMedia("(display-mode: s
 
 /* 调试钩子（不影响使用） */
 window.__vp={
-  get state(){ return {head,headT:+headT().toFixed(2),viewT0:+viewT0.toFixed(2),minViewT:+minViewT().toFixed(2),followLive,running,playing,dur,fMax,rate:+rate.toFixed(2),totalT:+totalT.toFixed(2),audioT:+audioEl.currentTime.toFixed(2),deviceMode,stripGain,gainVal,dispRange,showF0,showBand}; },
+  get state(){ return {head,headT:+headT().toFixed(2),viewT0:+viewT0.toFixed(2),wStart:+wStartT().toFixed(2),followLive,running,playing,dur,fMax,rate:+rate.toFixed(2),totalT:+totalT.toFixed(2),audioT:+audioEl.currentTime.toFixed(2),deviceMode,stripGain,gainVal,dispRange,showF0,showBand}; },
   get levels(){ return {peakHold:+peakHold.toFixed(1),ceilDb:+ceilDb.toFixed(1),floorDb:+floorDb.toFixed(1),dispRange}; }
+};
+
+window.__vpDecode=async()=>{        // 调试：解码录音验证声道
+  if(!audioEl.src) return {err:"no take"};
+  const ab=await (await fetch(audioEl.src)).arrayBuffer();
+  const AC=window.OfflineAudioContext||window.webkitOfflineAudioContext;
+  const ac=new AC(2,48000,48000);
+  const buf=await ac.decodeAudioData(ab.slice(0));
+  const n=buf.numberOfChannels;
+  let diff=0,l1=0;
+  if(n>=2){
+    const L=buf.getChannelData(0), R=buf.getChannelData(1);
+    const m=Math.min(L.length,R.length);
+    for(let i=0;i<m;i+=97){ diff+=Math.abs(L[i]-R[i]); l1+=Math.abs(L[i]); }
+  }
+  return {channels:n, sumAbsDiff:+diff.toFixed(3), sumAbsL:+l1.toFixed(3), dur:+buf.duration.toFixed(2)};
 };
 
 loadSettings();
