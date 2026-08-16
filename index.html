@@ -32,15 +32,17 @@
   @keyframes blink{50%{opacity:.15}}
 
   /* 顶部读数条 */
-  #readout{display:flex;align-items:baseline;justify-content:center;gap:11px;height:30px;
-    margin:4px 6px 0;font-variant-numeric:tabular-nums;font-size:12px;}
-  .rline{display:flex;align-items:baseline;gap:4px;line-height:1.2;white-space:nowrap;}
+  /* 读数行：每项固定槽位宽度，数值变化（小数位/升降号）不引起横向位移 */
+  #readout{display:flex;align-items:baseline;justify-content:center;gap:8px;height:30px;
+    margin:4px 4px 0;font-variant-numeric:tabular-nums;font-size:12px;}
+  .rline{display:flex;align-items:baseline;gap:4px;line-height:1.2;white-space:nowrap;flex:none;}
   .rlabel{font-size:11px;color:var(--muted);}
-  #noteVal{color:var(--good);font-size:19px;font-weight:700;min-width:34px;display:inline-block;}
-  #hzVal{color:var(--muted);min-width:46px;display:inline-block;}
-  #lvlVal{color:var(--accent);min-width:44px;display:inline-block;}
-  #clarVal{color:var(--accent2);min-width:36px;display:inline-block;}
-  #brightVal{color:#c06bff;min-width:36px;display:inline-block;}
+  /* 配色与数据来源一致：音高/清晰/明亮来自频谱（紫），响度来自波形（绿） */
+  #noteVal{color:#c06bff;font-size:19px;font-weight:700;width:46px;display:inline-block;overflow:hidden;}
+  #hzVal{color:#9a80c4;width:52px;display:inline-block;overflow:hidden;}
+  #lvlVal{color:#50d778;width:52px;display:inline-block;overflow:hidden;}
+  #clarVal{color:#c06bff;width:38px;display:inline-block;overflow:hidden;}
+  #brightVal{color:#c06bff;width:32px;display:inline-block;overflow:hidden;}
 
   /* 图谱区：响度与频谱为两个相邻的独立格子，中间留小空隙 */
   .canvasWrap{position:relative;margin:6px 8px;background:transparent;touch-action:none;}
@@ -206,7 +208,7 @@
 
   <div class="hint">
     <b>怎么用：</b>按「录制」后对麦克风发声。扫描线推进到屏幕约 3/4 处便停住，此后画面向左滚动，录制不限时长。
-    <b>左右拖动</b>图谱可回看<b>最近 60 秒</b>（更早的内容直接到头拉不动；录制中拖动会暂停跟随，点右上「回到实时」继续）。
+    <b>左右拖动</b>图谱可回看<b>最近 6 分钟</b>（更早的内容直接到头拉不动；录制中拖动会暂停跟随，点右上「回到实时」继续），拖动时顶部读数即时显示播放线处的数值。
     <b>按住不动</b>出现十字线，可查看该点的时间／频率／音名／强度。
     停止后屏幕上有一条<b>播放线</b>（初始在左 1/4）：把想听的位置拖到播放线下，按「回放」就从那里开始播；绿色播放光标最多走到画面中央，之后画面自动滚动；停播或播完后，播放线就停在光标所在的位置。
     屏幕时长与频率上限可随时切换，图像和录音都不会丢失。响度条高度可用「响度条增益」调节。所有设置会自动记住，下次打开无需重调。
@@ -230,11 +232,11 @@
     <p>所有声音仅在本机处理，不会上传。iOS Safari 出于安全要求，麦克风只能在 <b>HTTPS 网址</b>下使用；
     若用「文件」App 直接打开本文件（file://），页面能显示但无法收音。
     建议把本文件放到任意支持 HTTPS 的网页空间（或局域网 HTTPS 服务器）后，用 Safari 打开并
-    「添加到主屏幕」，即可像 App 一样全屏使用。录制不限时长，回看与回放窗口为最近 60 秒；
+    「添加到主屏幕」，即可像 App 一样全屏使用。录制不限时长，回看与回放窗口为最近 6 分钟；
     回放使用系统编码（iPhone 上为 AAC/MP4），录音经双声道处理，左右耳同时出声。</p>
   </details>
 
-  <div id="verFoot" class="full">v17 · 2026-08-15<br>上次调整：停播/播完后播放线停在光标处，不再跳回左 1/4</div>
+  <div id="verFoot" class="full">v18 · 2026-08-15<br>上次调整：回看/回放窗口延长至 6 分钟；频谱 2× 精细渲染；读数固定槽位不位移；清晰/明亮加响度门限并与音高同用紫色；拖动时即时显示播放线处数值</div>
 </div>
 </div>
 
@@ -292,7 +294,9 @@ let dispGamma=RANGE_GAMMA[dispRange];
    声音干净时该区仍黑，气声/挤压时灰雾自然浮现 */
 const PRE_F0=500, PRE_SLOPE=6, PRE_MAX=15;
 const LIVE_POS=0.75;      // 录制扫描线位置（屏宽比例）
-const HIST_SECONDS=60;    // 回看/回放窗口：最近 60 秒（录制不限时长；更早内容直接到头）
+const HIST_SECONDS=360;   // 回看/回放窗口：最近 6 分钟（录制不限时长；更早内容直接到头）
+const SS=2;               // 频谱内部渲染倍率：2× 精细（配合频点间插值）
+const GATE_PRE=0.01;      // 清晰/明亮的响度门限（增益前电平），低于此不响应
 const BASE_RATE=125;      // 历史存储固定时间基准（列/秒），与屏幕时长解耦 → 切换无缝
 const GAP_H=6;            // 响度条与频谱图之间的缝隙
 
@@ -375,16 +379,33 @@ function freqTicks(){
 }
 function timeTickStep(){ return dur<=6?1:2; }
 
+let binA=null,binB=null,binFrac=null,modeMax=null,gridRow2=null;
 function rebuildFreqMap(){
   gridRow=new Uint8Array(PH);
   for(const f of freqTicks()){ const y=Math.round(freqToY(f)); if(y>=0&&y<PH) gridRow[y]=1; }
   binLo=new Int32Array(PH); binHi=new Int32Array(PH);
-  const half=(fMax/(PH-1))/2, top=Math.max(NB-1, Math.ceil(10000/binHz));
+  const half=(fMax/(PH-1))/2, top=Math.max(1,Math.min(NB-1, Math.ceil(10000/binHz)));
   for(let y=0;y<PH;y++){
     const fc=yToFreq(y);
     binLo[y]=clamp(Math.floor((fc-half)/binHz),0,top);
     binHi[y]=clamp(Math.ceil((fc+half)/binHz),0,top);
   }
+  // 2× 渲染映射：像素带覆盖≥2个频点取最大；否则相邻频点线性插值（画面更精细平滑）
+  const PH2=PH*SS;
+  binA=new Int32Array(PH2); binB=new Int32Array(PH2);
+  binFrac=new Float32Array(PH2); modeMax=new Uint8Array(PH2);
+  gridRow2=new Uint8Array(PH2);
+  const half2=(fMax/(PH2-1))/2;
+  for(let y=0;y<PH2;y++){
+    const fc=fMax*(1-y/(PH2-1));
+    let lo=clamp(Math.floor((fc-half2)/binHz),0,top), hi=clamp(Math.ceil((fc+half2)/binHz),0,top);
+    if(hi-lo>=2){ modeMax[y]=1; binA[y]=lo; binB[y]=hi; }
+    else{
+      const b=clamp(fc/binHz,0,top-1), b0=Math.floor(b);
+      modeMax[y]=0; binA[y]=b0; binB[y]=b0+1; binFrac[y]=b-b0;
+    }
+  }
+  for(const f of freqTicks()){ const y=Math.round((1-f/fMax)*(PH2-1)); if(y>=0&&y<PH2) gridRow2[y]=1; }
 }
 
 function resize(){
@@ -396,11 +417,11 @@ function resize(){
   sig.width=Math.round(CW*DPR); sig.height=Math.round(SIG_H*DPR);
   sig.style.height=SIG_H+"px"; sig.style.marginBottom=GAP_H+"px";
   sigCtx.setTransform(DPR,0,0,DPR,0,0);
-  spec.width=CW; spec.height=SPEC_H;
+  spec.width=CW*SS; spec.height=SPEC_H*SS;   // 2× 内部分辨率
   spec.style.height=SPEC_H+"px";
   ovl.width=Math.round(CW*DPR); ovl.height=Math.round(TOTAL_H*DPR);
   ovlCtx.setTransform(DPR,0,0,DPR,0,0);
-  viewImg=specCtx.createImageData(PW,PH);
+  viewImg=specCtx.createImageData(PW*SS,PH*SS);
   rebuildFreqMap();
   buildGrid();
   dirtyView=true; renderView(); drawOverlay();
@@ -574,8 +595,9 @@ function stopTake(){
   }
   playBtn.disabled=!hasTake;
   backLive.style.display="none";
-  setStatus("已停止 · 拖动把想听的位置对准左侧播放线，按「回放」从那里开始","ok");
+  setStatus("已停止 · 拖动把想听的位置对准播放线，按「回放」从那里开始","ok");
   releaseWakeLock();
+  showHistReadouts(viewT0+dur*playLinePos);
   dirtyView=true; loopRAF();
 }
 
@@ -704,9 +726,10 @@ function appendCol(sMin,sMax,f0,clar,bright){
 /* ============ 视窗渲染（时间→环形列，显示映射在渲染时完成）============ */
 function renderView(){
   const d=viewImg.data;
-  const mc=Math.max(minCol(), Math.ceil(wStartT()*BASE_RATE));   // 60 秒窗口之外不显示（到头）
-  for(let x=0;x<PW;x++){
-    const col=Math.floor((viewT0+x/rate)*BASE_RATE);
+  const mc=Math.max(minCol(), Math.ceil(wStartT()*BASE_RATE));   // 窗口之外不显示（到头）
+  const PW2=PW*SS, PH2=PH*SS, rate2=rate*SS;
+  for(let x=0;x<PW2;x++){
+    const col=Math.floor((viewT0+x/rate2)*BASE_RATE);
     const has=histRaw&&col>=mc&&col<head;
     let base=0, flq=0, scale=0;
     if(has){
@@ -716,28 +739,36 @@ function renderView(){
       flq=(fl+130)*1.7;
       scale=255/Math.max((cl-fl)*1.7,1);
     }
-    for(let y=0;y<PH;y++){
+    for(let y=0;y<PH2;y++){
       let gi=0;
       if(has){
-        let qm=0;
-        for(let b=binLo[y];b<=binHi[y];b++){ const q=histRaw[base+b]; if(q>qm) qm=q; }
+        let qm;
+        if(modeMax[y]){
+          qm=0;
+          for(let b=binA[y];b<=binB[y];b++){ const q=histRaw[base+b]; if(q>qm) qm=q; }
+        }else{
+          const qa=histRaw[base+binA[y]], qb=histRaw[base+binB[y]];
+          qm=qa+(qb-qa)*binFrac[y];
+        }
         let vi=(qm-flq)*scale;
         vi=vi<0?0:(vi>255?255:vi);
         gi=GLUT[vi|0];
       }
       let r,g,b2;
-      if(gridRow[y]&&gi<25){ r=32;g=22;b2=50; }
+      if(gridRow2[y]&&gi<25){ r=32;g=22;b2=50; }
       else { r=LUT[gi*3]; g=LUT[gi*3+1]; b2=LUT[gi*3+2]; }
-      const o=(y*PW+x)*4;
+      const o=(y*PW2+x)*4;
       d[o]=r; d[o+1]=g; d[o+2]=b2; d[o+3]=255;
     }
   }
+  specCtx.setTransform(1,0,0,1,0,0);
   specCtx.fillStyle=AXIS_BG;
-  specCtx.fillRect(0,0,AXIS_W,SPEC_H);
-  specCtx.fillRect(AXIS_W,PH,PW,BOT_H);
-  specCtx.putImageData(viewImg,AXIS_W,0);
-  // 基频黄线
+  specCtx.fillRect(0,0,AXIS_W*SS,SPEC_H*SS);
+  specCtx.fillRect(AXIS_W*SS,PH*SS,PW*SS,BOT_H*SS);
+  specCtx.putImageData(viewImg,AXIS_W*SS,0);
+  // 基频黄线（CSS 坐标经 2× 变换绘制）
   if(showF0&&histRaw){
+    specCtx.setTransform(SS,0,0,SS,0,0);
     specCtx.fillStyle="#ffd166";
     for(let x=0;x<PW;x++){
       const col=Math.floor((viewT0+x/rate)*BASE_RATE);
@@ -748,6 +779,7 @@ function renderView(){
         specCtx.fillRect(AXIS_W+x,clamp(y0-1,0,PH-3),1,3);
       }
     }
+    specCtx.setTransform(1,0,0,1,0,0);
   }
   // 响度条：黑底紫色，真实上下包络（增益前电平 × 响度条增益，开方映射防过快饱和）
   sigCtx.fillStyle=AXIS_BG; sigCtx.fillRect(0,0,AXIS_W,SIG_H);
@@ -897,6 +929,8 @@ wrap.addEventListener("pointermove",e=>{
     }
     if(playing) followPlay=false;
     touchPt=null; touchInfo.style.display="none";
+    // 停止态拖动：立即显示播放线所在位置的四项读数（无需按播放）
+    if(!running&&!playing) showHistReadouts(viewT0+dur*playLinePos);
     dirtyView=true; loopRAF();
   }else if(gesture.mode==="inspect"){
     touchPt={x,y};
@@ -906,6 +940,22 @@ wrap.addEventListener("pointermove",e=>{
 function endGesture(){ clearTimeout(pressTimer); gesture=null; }
 wrap.addEventListener("pointerup",endGesture);
 wrap.addEventListener("pointercancel",endGesture);
+
+/* 从历史读取某时刻的四项读数（回放跟随光标；停止态拖动跟随播放线） */
+function showHistReadouts(tSec){
+  const col=Math.floor(tSec*BASE_RATE);
+  const ok=histRaw&&col>=Math.max(minCol(),Math.ceil(wStartT()*BASE_RATE))&&col<head;
+  if(ok){
+    const i=col%ringN;
+    const f=histF0[i];
+    if(f>0){ noteVal.textContent=midiToName(freqToMidiFloat(f)); hzVal.textContent=Math.round(f)+" Hz"; }
+    else { noteVal.textContent="—"; hzVal.textContent=""; }
+    const pk=Math.max(histMax[i],-histMin[i]);
+    lvlVal.textContent=pk>0.0005?fmtDb(20*Math.log10(pk))+" dB":"—";
+    clarVal.textContent=histClar[i]>0?Math.round(histClar[i]*100)+"%":"—";
+    brightVal.innerHTML=histBright[i]>0?brightBars(brightLevel(histBright[i])):"—";
+  }else{ noteVal.textContent="—"; hzVal.textContent=""; lvlVal.textContent="—"; clarVal.textContent="—"; brightVal.innerHTML="—"; }
+}
 
 /* ============ 主循环 ============ */
 let rafOn=false;
@@ -918,6 +968,7 @@ function tick(){
     analyser.getFloatTimeDomainData(timeBuf);
     let peak=0;
     for(let i=0;i<timeBuf.length;i++){ const a=Math.abs(timeBuf[i]); if(a>peak) peak=a; }
+    const pre=peak/Math.max(gainVal,0.01);   // 增益前真实电平（清晰/明亮门限、强度读数共用）
     // 响度条包络：最近 ~16ms 的真实 min/max
     const nCol=Math.min(timeBuf.length,Math.max(512,Math.round(audioCtx.sampleRate/BASE_RATE)*2));
     let sMin=0,sMax=0;
@@ -942,7 +993,8 @@ function tick(){
       pitchBuf.set(timeBuf.subarray(timeBuf.length-2048));
       const f=detectPitch(pitchBuf,audioCtx.sampleRate);
       if(f>0){ f0Hist.push(f); if(f0Hist.length>5)f0Hist.shift(); silentFrames=0; lastF0=median(f0Hist);
-        clarNow=clarNow<0?pitchR:0.7*clarNow+0.3*pitchR; }
+        if(pre>=GATE_PRE) clarNow=clarNow<0?pitchR:0.7*clarNow+0.3*pitchR;
+        else clarNow=-1; }                       // 响度过低：清晰不响应
       else { silentFrames++; if(silentFrames>8){ lastF0=-1; f0Hist=[]; clarNow=-1; } }
     }
     // 明亮：2–4kHz 能量占 0–4kHz 的比例（用未加重的原始谱）
@@ -952,7 +1004,7 @@ function tick(){
       for(let b=b0;b<b2;b++){ const v=freqBuf[b]; if(v>-160) eLo+=Math.pow(10,v/10); }
       for(let b=b2;b<=b4;b++){ const v=freqBuf[b]; if(v>-160) eHi+=Math.pow(10,v/10); }
       const tot=eLo+eHi;
-      if(tot>1e-9&&peak>0.004){
+      if(tot>1e-9&&pre>=GATE_PRE){               // 响度过低（环境噪声）：明亮不响应
         const br=eHi/tot;
         brightNow=brightNow<0?br:0.7*brightNow+0.3*br;
       }else brightNow=-1;
@@ -966,7 +1018,6 @@ function tick(){
     if(frameNo%8===0){
       if(lastF0>0){ noteVal.textContent=midiToName(freqToMidiFloat(lastF0)); hzVal.textContent=Math.round(lastF0)+" Hz"; }
       else { noteVal.textContent="—"; hzVal.textContent=""; }
-      const pre=peak/Math.max(gainVal,0.01);
       lvlVal.textContent=pre>0.0005?fmtDb(20*Math.log10(pre))+" dB":"—";
       if(pre>0.98) lvlVal.textContent="⚠ 过载";
       clarVal.textContent=clarNow>0?Math.round(clarNow*100)+"%":"—";
@@ -980,21 +1031,7 @@ function tick(){
       else if(pt<viewT0) viewT0=clamp(pt-dur*0.1,viewT0Min(),viewT0Max());
     }
     dirtyView=true;
-    if(frameNo%8===0){
-      // 回放读数：从历史中取当前播放位置的各项指标（与录制时一致）
-      const col=Math.floor(pt*BASE_RATE);
-      const ok=histRaw&&col>=Math.max(minCol(),Math.ceil(wStartT()*BASE_RATE))&&col<head;
-      if(ok){
-        const i=col%ringN;
-        const f=histF0[i];
-        if(f>0){ noteVal.textContent=midiToName(freqToMidiFloat(f)); hzVal.textContent=Math.round(f)+" Hz"; }
-        else { noteVal.textContent="—"; hzVal.textContent=""; }
-        const pk=Math.max(histMax[i],-histMin[i]);
-        lvlVal.textContent=pk>0.0005?fmtDb(20*Math.log10(pk))+" dB":"—";
-        clarVal.textContent=histClar[i]>0?Math.round(histClar[i]*100)+"%":"—";
-        brightVal.innerHTML=histBright[i]>0?brightBars(brightLevel(histBright[i])):"—";
-      }else{ noteVal.textContent="—"; hzVal.textContent=""; lvlVal.textContent="—"; clarVal.textContent="—"; brightVal.innerHTML="—"; }
-    }
+    if(frameNo%8===0) showHistReadouts(pt);
   }
   if(dirtyView){ renderView(); drawOverlay(); if(touchPt) updateTouchInfo(); dirtyView=false; }
   if(running||playing) loopRAF();
@@ -1016,7 +1053,9 @@ bindChips("durRow",v=>{
   dur=v; rate=PW/dur;
   if(followLive) viewT0=viewT0Max();
   viewT0=clamp(viewT0,viewT0Min(),viewT0Max());
-  buildGrid(); dirtyView=true; loopRAF(); saveSettings();
+  buildGrid();
+  if(!running&&!playing&&hasTake) showHistReadouts(viewT0+dur*playLinePos);
+  dirtyView=true; loopRAF(); saveSettings();
 });
 bindChips("fmaxRow",v=>{
   fMax=v;
