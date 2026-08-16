@@ -236,7 +236,7 @@
     回放使用系统编码（iPhone 上为 AAC/MP4），录音经双声道处理，左右耳同时出声。</p>
   </details>
 
-  <div id="verFoot" class="full">v18 · 2026-08-15<br>上次调整：回看/回放窗口延长至 6 分钟；频谱 2× 精细渲染；读数固定槽位不位移；清晰/明亮加响度门限并与音高同用紫色；拖动时即时显示播放线处数值</div>
+  <div id="verFoot" class="full">v19 · 2026-08-15<br>上次调整：音高／清晰／明亮三项以音高检出为准，始终一起显示、一起消失</div>
 </div>
 </div>
 
@@ -296,7 +296,7 @@ const PRE_F0=500, PRE_SLOPE=6, PRE_MAX=15;
 const LIVE_POS=0.75;      // 录制扫描线位置（屏宽比例）
 const HIST_SECONDS=360;   // 回看/回放窗口：最近 6 分钟（录制不限时长；更早内容直接到头）
 const SS=2;               // 频谱内部渲染倍率：2× 精细（配合频点间插值）
-const GATE_PRE=0.01;      // 清晰/明亮的响度门限（增益前电平），低于此不响应
+/* 清晰/明亮与音高共用同一判定：检出音高才显示三项，未检出则三项一起消失 */
 const BASE_RATE=125;      // 历史存储固定时间基准（列/秒），与屏幕时长解耦 → 切换无缝
 const GAP_H=6;            // 响度条与频谱图之间的缝隙
 
@@ -948,12 +948,16 @@ function showHistReadouts(tSec){
   if(ok){
     const i=col%ringN;
     const f=histF0[i];
-    if(f>0){ noteVal.textContent=midiToName(freqToMidiFloat(f)); hzVal.textContent=Math.round(f)+" Hz"; }
-    else { noteVal.textContent="—"; hzVal.textContent=""; }
+    if(f>0){
+      noteVal.textContent=midiToName(freqToMidiFloat(f)); hzVal.textContent=Math.round(f)+" Hz";
+      clarVal.textContent=histClar[i]>0?Math.round(histClar[i]*100)+"%":"—";
+      brightVal.innerHTML=histBright[i]>0?brightBars(brightLevel(histBright[i])):"—";
+    }else{
+      noteVal.textContent="—"; hzVal.textContent="";
+      clarVal.textContent="—"; brightVal.innerHTML="—";
+    }
     const pk=Math.max(histMax[i],-histMin[i]);
     lvlVal.textContent=pk>0.0005?fmtDb(20*Math.log10(pk))+" dB":"—";
-    clarVal.textContent=histClar[i]>0?Math.round(histClar[i]*100)+"%":"—";
-    brightVal.innerHTML=histBright[i]>0?brightBars(brightLevel(histBright[i])):"—";
   }else{ noteVal.textContent="—"; hzVal.textContent=""; lvlVal.textContent="—"; clarVal.textContent="—"; brightVal.innerHTML="—"; }
 }
 
@@ -993,9 +997,8 @@ function tick(){
       pitchBuf.set(timeBuf.subarray(timeBuf.length-2048));
       const f=detectPitch(pitchBuf,audioCtx.sampleRate);
       if(f>0){ f0Hist.push(f); if(f0Hist.length>5)f0Hist.shift(); silentFrames=0; lastF0=median(f0Hist);
-        if(pre>=GATE_PRE) clarNow=clarNow<0?pitchR:0.7*clarNow+0.3*pitchR;
-        else clarNow=-1; }                       // 响度过低：清晰不响应
-      else { silentFrames++; if(silentFrames>8){ lastF0=-1; f0Hist=[]; clarNow=-1; } }
+        clarNow=clarNow<0?pitchR:0.7*clarNow+0.3*pitchR; }
+      else { silentFrames++; if(silentFrames>8){ lastF0=-1; f0Hist=[]; clarNow=-1; brightNow=-1; } }
     }
     // 明亮：2–4kHz 能量占 0–4kHz 的比例（用未加重的原始谱）
     if(frameNo%2===1||brightNow<0){
@@ -1004,24 +1007,30 @@ function tick(){
       for(let b=b0;b<b2;b++){ const v=freqBuf[b]; if(v>-160) eLo+=Math.pow(10,v/10); }
       for(let b=b2;b<=b4;b++){ const v=freqBuf[b]; if(v>-160) eHi+=Math.pow(10,v/10); }
       const tot=eLo+eHi;
-      if(tot>1e-9&&pre>=GATE_PRE){               // 响度过低（环境噪声）：明亮不响应
+      if(tot>1e-9&&lastF0>0){                    // 与音高同门限：检出音高才计明亮
         const br=eHi/tot;
         brightNow=brightNow<0?br:0.7*brightNow+0.3*br;
       }else brightNow=-1;
     }
     let target=Math.floor(t*BASE_RATE);
     if(target-head>ringN){ histRaw.fill(0); histMin.fill(0); histMax.fill(0); histF0.fill(0); histClar.fill(0); histBright.fill(0); head=target; }
-    while(head<target) appendCol(sMin,sMax,lastF0,clarNow>0?clarNow:0,brightNow>0?brightNow:0);
+    const voiced=lastF0>0;
+    while(head<target) appendCol(sMin,sMax,lastF0,voiced&&clarNow>0?clarNow:0,voiced&&brightNow>0?brightNow:0);
     if(followLive) viewT0=viewT0Max();
     else viewT0=clamp(viewT0,viewT0Min(),viewT0Max());
     dirtyView=true;
     if(frameNo%8===0){
-      if(lastF0>0){ noteVal.textContent=midiToName(freqToMidiFloat(lastF0)); hzVal.textContent=Math.round(lastF0)+" Hz"; }
-      else { noteVal.textContent="—"; hzVal.textContent=""; }
+      // 音高/清晰/明亮 三项以音高检出为准，始终一起显示或消失
+      if(lastF0>0){
+        noteVal.textContent=midiToName(freqToMidiFloat(lastF0)); hzVal.textContent=Math.round(lastF0)+" Hz";
+        clarVal.textContent=clarNow>0?Math.round(clarNow*100)+"%":"—";
+        brightVal.innerHTML=brightNow>0?brightBars(brightLevel(brightNow)):"—";
+      }else{
+        noteVal.textContent="—"; hzVal.textContent="";
+        clarVal.textContent="—"; brightVal.innerHTML="—";
+      }
       lvlVal.textContent=pre>0.0005?fmtDb(20*Math.log10(pre))+" dB":"—";
       if(pre>0.98) lvlVal.textContent="⚠ 过载";
-      clarVal.textContent=clarNow>0?Math.round(clarNow*100)+"%":"—";
-      brightVal.innerHTML=brightNow>0?brightBars(brightLevel(brightNow)):"—";
     }
   }else if(playing){
     // 光标时间对齐到已绘内容末尾（编码器尾巴不推进画面，线始终钉在中央不跳）
